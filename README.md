@@ -84,6 +84,40 @@ end
 ```
 
 
+## FAQ
+
+### Can I disable the automatic signature popup?
+
+Yes, if you set the `signature_help_trigger_characters` to an empty table:
+
+
+```lua
+on_attach = function(client, bufnr)
+  client.resolved_capabilities.signature_help_trigger_characters = {}
+  require'lsp_compl'.attach(client, bufnr)
+end
+```
+
+
+### Can I customize the trigger characters for completion?
+
+Yes, if you override the `triggerCharacters`:
+
+
+```lua
+on_attach = function(client, bufnr)
+  client.server_capabilities.completionProvider.triggerCharacters = {'a', 'e', 'i', 'o', 'u'}
+  require'lsp_compl'.attach(client, bufnr)
+end
+```
+
+
+### Can I trigger the completion manually?
+
+Yes, call `require'lsp_compl'.trigger_completion()` while in insert mode.
+But this won't be much different from using the `vim.lsp.omnifunc` via `i_CTRL-X_CTRL-O`.
+
+
 [1]: https://github.com/hrsh7th/nvim-compe
 [2]: https://github.com/junegunn/vim-plug
 [3]: https://github.com/wbthomason/packer.nvim
