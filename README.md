@@ -19,7 +19,7 @@ There have been some voices looking for something smaller than [nvim-compe][1], 
 - Apply additional text edits (Used to resolve imports and so on)
 - Supports lazy resolving of additional text edits if the language server has the capability
 - Optionally supports server side fuzzy matching
-- Optionally supports LSP snippet expansion if a snippet-applier is registered
+- Optionally supports LSP snippet expansion if [vsnip][vsnip] is installed or a custom snippet-applier is registered
 
 If you need anything else, you better use [nvim-compe][1].
 
@@ -87,4 +87,5 @@ end
 [1]: https://github.com/hrsh7th/nvim-compe
 [2]: https://github.com/junegunn/vim-plug
 [3]: https://github.com/wbthomason/packer.nvim
+[4]: https://github.com/neovim/nvim-lspconfig
 [vsnip]: https://github.com/hrsh7th/vim-vsnip
