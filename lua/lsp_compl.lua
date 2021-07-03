@@ -12,6 +12,7 @@ end
 local completion_ctx
 completion_ctx = {
   expand_snippet = false,
+  isIncomplete = false,
   col = nil,
 
   pending_requests = {},
@@ -23,6 +24,7 @@ completion_ctx = {
   end,
   reset = function()
     completion_ctx.expand_snippet = false
+    completion_ctx.isIncomplete = false
     completion_ctx.col = nil
     completion_ctx.cancel_pending()
   end
@@ -140,6 +142,7 @@ function M.trigger_completion(opts)
   local params = lsp.util.make_position_params()
   local _, cancel_req = request('textDocument/completion', params, function(err, _, result, client_id)
     completion_ctx.pending_requests = {}
+    completion_ctx.isIncomplete = result.isIncomplete
     assert(not err, vim.inspect(err))
     if not result then
       print('No completion result')
@@ -166,7 +169,7 @@ function M._InsertCharPre(server_side_fuzzy_completion)
     return
   end
   if tonumber(vim.fn.pumvisible()) == 1 then
-    if server_side_fuzzy_completion then
+    if completion_ctx.isIncomplete or server_side_fuzzy_completion then
       timer = vim.loop.new_timer()
       timer:start(150, 0, vim.schedule_wrap(M.trigger_completion))
     end
