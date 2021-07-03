@@ -45,13 +45,13 @@ If you need anything else, you better use [nvim-compe][1].
 
 ## Configuration
 
-You need to call the `on_attach` method when the language server clients attaches to a buffer.
+You need to call the `attach` method when the language server clients attaches to a buffer.
 
 If you're using [lspconfig][4] you could do this like this:
 
 
 ```lua
-lua require'lspconfig'.pyls.setup{on_attach=require'lsp_compl'.on_attach}
+lua require'lspconfig'.pyls.setup{on_attach=require'lsp_compl'.attach}
 ```
 
 If you want to utilize server side fuzzy completion, you would call it like this:
@@ -59,7 +59,7 @@ If you want to utilize server side fuzzy completion, you would call it like this
 ```lua
 lua require'lspconfig'.pyls.setup{
   on_attach = function(client, bufnr)
-    require'lsp_compl'.on_attach(client, bufnr, { server_side_fuzzy_completion = true })
+    require'lsp_compl'.attach(client, bufnr, { server_side_fuzzy_completion = true })
   end,
 }
 ```
