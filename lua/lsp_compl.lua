@@ -13,6 +13,7 @@ local completion_ctx
 completion_ctx = {
   expand_snippet = false,
   isIncomplete = false,
+  suppress_completeDone = false,
   col = nil,
 
   pending_requests = {},
@@ -25,6 +26,7 @@ completion_ctx = {
   reset = function()
     completion_ctx.expand_snippet = false
     completion_ctx.isIncomplete = false
+    completion_ctx.suppress_completeDone = false
     completion_ctx.col = nil
     completion_ctx.cancel_pending()
   end
@@ -142,12 +144,12 @@ function M.trigger_completion(opts)
   local params = lsp.util.make_position_params()
   local _, cancel_req = request('textDocument/completion', params, function(err, _, result, client_id)
     completion_ctx.pending_requests = {}
-    completion_ctx.isIncomplete = result.isIncomplete
     assert(not err, vim.inspect(err))
     if not result then
       print('No completion result')
       return
     end
+    completion_ctx.isIncomplete = result.isIncomplete
     local mode = api.nvim_get_mode()['mode']
     if mode == 'i' or mode == 'ic' then
       -- TODO: Remove the `flags.server_side_fuzzy_completion` hack
@@ -168,14 +170,18 @@ function M._InsertCharPre(server_side_fuzzy_completion)
   if timer then
     return
   end
-  if tonumber(vim.fn.pumvisible()) == 1 then
+  local char = api.nvim_get_vvar('char')
+  local pumvisible = tonumber(vim.fn.pumvisible()) == 1
+  if pumvisible then
     if completion_ctx.isIncomplete or server_side_fuzzy_completion then
+      -- Calling vim.fn.complete will trigger `CompleteDone` for the active completion window;
+      -- → suppress it to avoid reseting the completion_ctx
+      completion_ctx.suppress_completeDone = true
       timer = vim.loop.new_timer()
       timer:start(150, 0, vim.schedule_wrap(M.trigger_completion))
     end
     return
   end
-  local char = api.nvim_get_vvar('char')
   local triggers = triggers_by_buf[api.nvim_get_current_buf()] or {}
   for _, entry in pairs(triggers) do
     local chars, fn = unpack(entry)
@@ -218,6 +224,10 @@ end
 
 
 function M._CompleteDone(resolveEdits)
+  if completion_ctx.suppress_completeDone then
+    completion_ctx.suppress_completeDone = false
+    return
+  end
   local completed_item = api.nvim_get_vvar('completed_item')
   if not completed_item or not completed_item.user_data then
     completion_ctx.reset()
@@ -275,6 +285,7 @@ function M.detach(client_id, bufnr)
   vim.cmd('augroup end')
   vim.cmd(string.format('augroup! lsp_compl_%d_%d', client_id, bufnr))
 end
+
 
 function M.attach(client, bufnr, opts)
   opts = opts or {}
