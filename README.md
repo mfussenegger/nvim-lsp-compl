@@ -118,6 +118,28 @@ Yes, call `require'lsp_compl'.trigger_completion()` while in insert mode.
 But this won't be much different from using the `vim.lsp.omnifunc` via `i_CTRL-X_CTRL-O`.
 
 
+### Can I re-trigger completion when I hit backspace or `<C-w>` while completion is active?
+
+Yes, you have three options:
+
+1. Manually trigger the completion (see previous question)
+2. Enable `trigger_on_delete`:
+
+```lua
+  -- ...
+  on_attach = function(client, bufnr)
+    require'lsp_compl'.attach(client, bufnr, { trigger_on_delete = true })
+  end
+  -- ...
+```
+
+3. Define a key mapping that always re-triggers it:
+
+```vimL
+inoremap <expr> <BS> (pumvisible() ? "\<BS><cmd> :lua require'lsp_compl'.trigger_completion()<CR>" : "\<BS>")
+```
+
+
 [1]: https://github.com/hrsh7th/nvim-compe
 [2]: https://github.com/junegunn/vim-plug
 [3]: https://github.com/wbthomason/packer.nvim
