@@ -9,6 +9,7 @@ local request = function(method, payload, handler)
   return lsp.buf_request(0, method, payload, handler)
 end
 
+local client_settings = {}
 local completion_ctx
 completion_ctx = {
   expand_snippet = false,
@@ -133,13 +134,13 @@ function M.find_start(line, cursor_pos)
 end
 
 
-function M.trigger_completion(opts)
-  opts = opts or {}
+function M.trigger_completion()
   reset_timer()
   completion_ctx.cancel_pending()
   local cursor_pos = api.nvim_win_get_cursor(0)[2]
   local line = api.nvim_get_current_line()
   local col = completion_ctx.col or M.find_start(line, cursor_pos)
+  completion_ctx.col = col
   local prefix = line:sub(col, cursor_pos)
   local params = lsp.util.make_position_params()
   local _, cancel_req = request('textDocument/completion', params, function(err, _, result, client_id)
@@ -152,12 +153,11 @@ function M.trigger_completion(opts)
     completion_ctx.isIncomplete = result.isIncomplete
     local mode = api.nvim_get_mode()['mode']
     if mode == 'i' or mode == 'ic' then
-      -- TODO: Remove the `flags.server_side_fuzzy_completion` hack
-      local client = vim.lsp.get_client_by_id(client_id)
+      local opts = client_settings[client_id] or {}
       local matches = M.text_document_completion_list_to_complete_items(
         result,
         prefix,
-        opts.server_side_fuzzy_completion or (client and client.config.flags.server_side_fuzzy_completion)
+        opts.server_side_fuzzy_completion
       )
       vim.fn.complete(col, matches)
     end
@@ -268,7 +268,6 @@ function M._CompleteDone(resolveEdits)
 end
 
 
-
 function M.accept_pum()
   if tonumber(vim.fn.pumvisible()) == 0 then
     return false
@@ -284,11 +283,13 @@ function M.detach(client_id, bufnr)
   vim.cmd('au!')
   vim.cmd('augroup end')
   vim.cmd(string.format('augroup! lsp_compl_%d_%d', client_id, bufnr))
+  client_settings[client_id] = nil
 end
 
 
 function M.attach(client, bufnr, opts)
   opts = opts or {}
+  client_settings[client.id] = opts
   vim.cmd(string.format('augroup lsp_compl_%d_%d', client.id, bufnr))
   vim.cmd('au!')
   vim.cmd(string.format(
@@ -321,7 +322,7 @@ function M.attach(client, bufnr, opts)
   local completionProvider = client.server_capabilities.completionProvider or {}
   local completion_triggers = completionProvider.triggerCharacters
   if completion_triggers and #completion_triggers > 0 then
-    table.insert(triggers, { completion_triggers, function() M.trigger_completion(opts) end })
+    table.insert(triggers, { completion_triggers, M.trigger_completion })
   end
 end
 
