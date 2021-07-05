@@ -15,7 +15,6 @@ completion_ctx = {
   expand_snippet = false,
   isIncomplete = false,
   suppress_completeDone = false,
-  col = nil,
   cursor = nil,
 
   pending_requests = {},
@@ -30,7 +29,6 @@ completion_ctx = {
     completion_ctx.expand_snippet = false
     completion_ctx.isIncomplete = false
     completion_ctx.suppress_completeDone = false
-    completion_ctx.col = nil
     completion_ctx.cancel_pending()
   end
 }
@@ -121,28 +119,15 @@ local function reset_timer()
   end
 end
 
-function M.find_start(line, cursor_pos)
-  local line_to_cursor = line:sub(1, cursor_pos)
-  local idx = 0
-  while true do
-    local i = string.find(line_to_cursor, '[^a-zA-Z0-9_:]', idx + 1)
-    if i == nil then
-      break
-    else
-      idx = i
-    end
-  end
-  return idx + 1
-end
-
 
 function M.trigger_completion()
   reset_timer()
   completion_ctx.cancel_pending()
   local cursor_pos = api.nvim_win_get_cursor(0)[2]
   local line = api.nvim_get_current_line()
-  local col = completion_ctx.col or M.find_start(line, cursor_pos)
-  completion_ctx.col = col
+  local line_to_cursor = line:sub(1, cursor_pos)
+  local col = vim.fn.match(line_to_cursor, '\\k*$')
+  col = col + 1
   local prefix = line:sub(col, cursor_pos)
   local params = lsp.util.make_position_params()
   local _, cancel_req = request('textDocument/completion', params, function(err, _, result, client_id)
@@ -188,7 +173,6 @@ function M._InsertCharPre(server_side_fuzzy_completion)
   for _, entry in pairs(triggers) do
     local chars, fn = unpack(entry)
     if vim.tbl_contains(chars, char) then
-      completion_ctx.col = nil
       timer = vim.loop.new_timer()
       timer:start(50, 0, function()
         reset_timer()
@@ -264,7 +248,7 @@ function M._CompleteDone(resolveEdits)
   local suffix = nil
   if expand_snippet then
     -- Remove the already inserted word
-    local start_char = completion_ctx.col and (completion_ctx.col - 1) or (col - #completed_item.word)
+    local start_char = col - #completed_item.word
     local line = api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, true)[1]
     suffix = line:sub(col + 1)
     api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
@@ -349,7 +333,13 @@ function M.attach(client, bufnr, opts)
   local completionProvider = client.server_capabilities.completionProvider or {}
   local completion_triggers = completionProvider.triggerCharacters
   if completion_triggers and #completion_triggers > 0 then
-    table.insert(triggers, { completion_triggers, M.trigger_completion })
+    table.insert(triggers, {
+      completion_triggers,
+      function()
+        reset_timer()
+        M.trigger_completion()
+      end
+    })
   end
 end
 
