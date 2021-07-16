@@ -294,6 +294,17 @@ function M.detach(client_id, bufnr)
 end
 
 
+local function signature_help()
+  reset_timer()
+  local params = lsp.util.make_position_params()
+  request('textDocument/signatureHelp', params, function(err, method, result, client_id, bufnr, config)
+    config = config or {}
+    config.focusable = false
+    vim.lsp.handlers['textDocument/signatureHelp'](err, method, result, client_id, bufnr, config)
+  end)
+end
+
+
 function M.attach(client, bufnr, opts)
   opts = opts or {}
   client_settings[client.id] = opts
@@ -328,18 +339,12 @@ function M.attach(client, bufnr, opts)
   end
   local signature_triggers = client.resolved_capabilities.signature_help_trigger_characters
   if signature_triggers and #signature_triggers > 0 then
-    table.insert(triggers, { signature_triggers, lsp.buf.signature_help })
+    table.insert(triggers, { signature_triggers, signature_help })
   end
   local completionProvider = client.server_capabilities.completionProvider or {}
   local completion_triggers = completionProvider.triggerCharacters
   if completion_triggers and #completion_triggers > 0 then
-    table.insert(triggers, {
-      completion_triggers,
-      function()
-        reset_timer()
-        M.trigger_completion()
-      end
-    })
+    table.insert(triggers, { completion_triggers, M.trigger_completion })
   end
 end
 
