@@ -70,7 +70,7 @@ To expand snippets you need to explicitly accept a completion candidate:
 inoremap <expr> <CR> (luaeval("require'lsp_compl'.accept_pum()") ? "\<c-y>" : "\<CR>")
 ```
 
-Currently snippet expansion defaults to use [vim-vsnip][vsnip], but you can override the `apply_snippet` function to use a different snippet engine:
+Currently snippet expansion tries [LuaSnip][luasnip] if available and otherwise falls back to use [vim-vsnip][vsnip], but you can override the `apply_snippet` function to use a different snippet engine:
 
 
 ```lua
@@ -145,3 +145,4 @@ inoremap <expr> <BS> (pumvisible() ? "\<BS><cmd> :lua require'lsp_compl'.trigger
 [3]: https://github.com/wbthomason/packer.nvim
 [4]: https://github.com/neovim/nvim-lspconfig
 [vsnip]: https://github.com/hrsh7th/vim-vsnip
+[luasnip]: https://github.com/L3MON4D3/LuaSnip

@@ -222,10 +222,12 @@ end
 
 
 function M.apply_snippet(item, suffix)
+  local ok, luasnip = pcall(require, 'luasnip')
+  local fn = ok and luasnip.lsp_expand or vim.fn['vsnip#anonymous']
   if item.textEdit then
-    vim.fn['vsnip#anonymous'](item.textEdit.newText .. suffix)
+    fn(item.textEdit.newText .. suffix)
   elseif item.insertText then
-    vim.fn['vsnip#anonymous'](item.insertText .. suffix)
+    fn(item.insertText .. suffix)
   end
 end
 
