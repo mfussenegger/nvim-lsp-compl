@@ -25,7 +25,7 @@ completion_ctx = {
     completion_ctx.pending_requests = {}
   end,
   reset = function()
-    -- Cursor is not resetted here, it needs to survive a `CompleteDone` event
+    -- Cursor is not reset here, it needs to survive a `CompleteDone` event
     completion_ctx.expand_snippet = false
     completion_ctx.isIncomplete = false
     completion_ctx.suppress_completeDone = false
@@ -50,9 +50,6 @@ function M.text_document_completion_list_to_complete_items(result, prefix, fuzzy
   local items = lsp.util.extract_completion_items(result)
   if #items == 0 then
     return {}
-  end
-  if items[1] and items[1].sortText then
-    table.sort(items, function(a, b) return (a.sortText or a.label) < (b.sortText or b.label) end)
   end
   local matches = {}
   for _, item in pairs(items) do
@@ -105,6 +102,9 @@ function M.text_document_completion_list_to_complete_items(result, prefix, fuzzy
       })
     end
   end
+  table.sort(matches, function(a, b)
+    return (a.user_data.sortText or a.user_data.label) < (b.user_data.sortText or b.user_data.label)
+  end)
   return matches
 end
 
@@ -162,7 +162,7 @@ function M._InsertCharPre(server_side_fuzzy_completion)
   if pumvisible then
     if completion_ctx.isIncomplete or server_side_fuzzy_completion then
       -- Calling vim.fn.complete will trigger `CompleteDone` for the active completion window;
-      -- → suppress it to avoid reseting the completion_ctx
+      -- → suppress it to avoid resetting the completion_ctx
       completion_ctx.suppress_completeDone = true
       timer = vim.loop.new_timer()
       timer:start(150, 0, vim.schedule_wrap(M.trigger_completion))
