@@ -221,13 +221,18 @@ local function apply_text_edits(bufnr, lnum, text_edits)
 end
 
 
-function M.apply_snippet(item, suffix)
+M.expand_snippet = function(snippet)
   local ok, luasnip = pcall(require, 'luasnip')
   local fn = ok and luasnip.lsp_expand or vim.fn['vsnip#anonymous']
+  fn(snippet)
+end
+
+
+local function apply_snippet(item, suffix)
   if item.textEdit then
-    fn(item.textEdit.newText .. suffix)
+    M.expand_snippet(item.textEdit.newText .. suffix)
   elseif item.insertText then
-    fn(item.insertText .. suffix)
+    M.expand_snippet(item.insertText .. suffix)
   end
 end
 
@@ -259,7 +264,7 @@ function M._CompleteDone(resolveEdits)
   if item.additionalTextEdits then
     apply_text_edits(bufnr, lnum, item.additionalTextEdits)
     if expand_snippet then
-      M.apply_snippet(item, suffix)
+      apply_snippet(item, suffix)
     end
   elseif resolveEdits and type(item) == "table" then
     local _, cancel_req = request('completionItem/resolve', item, function(err, _, result)
@@ -267,12 +272,12 @@ function M._CompleteDone(resolveEdits)
       assert(not err, vim.inspect(err))
       apply_text_edits(bufnr, lnum, result.additionalTextEdits)
       if expand_snippet then
-        M.apply_snippet(item, suffix)
+        apply_snippet(item, suffix)
       end
     end)
     table.insert(completion_ctx.pending_requests, cancel_req)
   elseif expand_snippet then
-    M.apply_snippet(item, suffix)
+    apply_snippet(item, suffix)
   end
 end
 

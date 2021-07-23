@@ -70,18 +70,21 @@ To expand snippets you need to explicitly accept a completion candidate:
 inoremap <expr> <CR> (luaeval("require'lsp_compl'.accept_pum()") ? "\<c-y>" : "\<CR>")
 ```
 
-Currently snippet expansion tries [LuaSnip][luasnip] if available and otherwise falls back to use [vim-vsnip][vsnip], but you can override the `apply_snippet` function to use a different snippet engine:
+Currently snippet expansion tries [LuaSnip][luasnip] if available and otherwise falls back to use [vim-vsnip][vsnip], but you can override the `expand_snippet` function to use a different snippet engine:
 
 
 ```lua
-require('lsp_compl').apply_snippet = function(item, suffix)
-  if item.textEdit then
-    vim.fn['vsnip#anonymous'](item.textEdit.newText .. suffix)
-  elseif item.insertText then
-    vim.fn['vsnip#anonymous'](item.insertText .. suffix)
-  end
-end
+require('lsp_compl').expand_snippet = vim.fn['vsnip#anonymous']
 ```
+
+Or
+
+```lua
+require('lsp_compl').expand_snippet = require('luasnip').lsp_expand
+```
+
+
+The function takes a single argument - the snippet - and is supposed to expand it.
 
 
 ## FAQ
