@@ -3,7 +3,7 @@ local lsp = vim.lsp
 local timer = nil
 local triggers_by_buf = {}
 local M = {}
-local snippet = 2
+local SNIPPET = 2
 
 local request = function(method, payload, handler)
   return lsp.buf_request(0, method, payload, handler)
@@ -58,7 +58,7 @@ function M.text_document_completion_list_to_complete_items(result, prefix, fuzzy
     local word
     if kind == 'Snippet' then
       word = item.label
-    elseif item.insertTextFormat == snippet then
+    elseif item.insertTextFormat == SNIPPET then
       --[[
       -- eclipse.jdt.ls has
       --      insertText = "wait",
@@ -229,6 +229,7 @@ end
 
 
 local function apply_snippet(item, suffix)
+  -- TODO: move cursor back to end of new text?
   if item.textEdit then
     M.expand_snippet(item.textEdit.newText .. suffix)
   elseif item.insertText then
@@ -251,7 +252,7 @@ function M._CompleteDone(resolveEdits)
   lnum = lnum - 1
   local item = completed_item.user_data
   local bufnr = api.nvim_get_current_buf()
-  local expand_snippet = item.insertTextFormat == snippet and completion_ctx.expand_snippet
+  local expand_snippet = item.insertTextFormat == SNIPPET and completion_ctx.expand_snippet
   local suffix = nil
   if expand_snippet then
     -- Remove the already inserted word
@@ -262,18 +263,18 @@ function M._CompleteDone(resolveEdits)
   end
   completion_ctx.reset()
   if item.additionalTextEdits then
-    apply_text_edits(bufnr, lnum, item.additionalTextEdits)
     if expand_snippet then
       apply_snippet(item, suffix)
     end
+    apply_text_edits(bufnr, lnum, item.additionalTextEdits)
   elseif resolveEdits and type(item) == "table" then
     local _, cancel_req = request('completionItem/resolve', item, function(err, _, result)
       completion_ctx.pending_requests = {}
       assert(not err, vim.inspect(err))
-      apply_text_edits(bufnr, lnum, result.additionalTextEdits)
       if expand_snippet then
         apply_snippet(item, suffix)
       end
+      apply_text_edits(bufnr, lnum, result.additionalTextEdits)
     end)
     table.insert(completion_ctx.pending_requests, cancel_req)
   elseif expand_snippet then
