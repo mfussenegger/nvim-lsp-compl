@@ -141,15 +141,65 @@ local function reset_timer()
 end
 
 
+local function adjust_start_col(lnum, line, items, encoding)
+  -- vim.fn.complete takes a startbyte and selecting a completion entry will
+  -- replace anything between the startbyte and the current cursor position
+  -- with the completion item's word
+  --
+  -- `col` is derived using `vim.fn.match(line_to_cursor, '\\k*$') + 1`
+  -- Which works for most cases to find the word boundary, but the language
+  -- server may work with a different boundary.
+  --
+  -- Luckily, the LSP response contains an (optional) `textEdit` with range,
+  -- which indicates which boundary the language server used.
+  --
+  -- Concrete example, in Lua where there is currently a known mismatch:
+  --
+  -- require('plenary.asy|
+  --         ▲       ▲   ▲
+  --         │       │   │
+  --         │       │   └── cursor_pos: 20
+  --         │       └────── col: 17
+  --         └────────────── textEdit.range.start.character: 9
+  --                                 .newText = 'plenary.async'
+  --
+  -- Caveat:
+  --  - textEdit.range can (in theory) be different *per* item.
+  --  - range.start.character is (usually) a UTF-16 offset
+  --
+  -- Approach:
+  --  - Use textEdit.range.start.character *only* if *all* items contain the same value
+  --    Otherwise we'd have to normalize the `word` value.
+  --
+  local min_start_char = nil
+
+  for _, item in pairs(items) do
+    if item.textEdit and item.textEdit.range.start.line == lnum - 1 then
+      if min_start_char and min_start_char ~= item.textEdit.range.start.character then
+        return nil
+      end
+      min_start_char = item.textEdit.range.start.character
+    end
+  end
+  if min_start_char then
+    if encoding == 'utf-8' then
+      return min_start_char + 1
+    else
+      return vim.str_byteindex(line, min_start_char, encoding == 'utf-16') + 1
+    end
+  else
+    return nil
+  end
+end
+
+
 function M.trigger_completion()
   reset_timer()
   completion_ctx.cancel_pending()
-  local cursor_pos = api.nvim_win_get_cursor(0)[2]
+  local lnum, cursor_pos = unpack(api.nvim_win_get_cursor(0))
   local line = api.nvim_get_current_line()
   local line_to_cursor = line:sub(1, cursor_pos)
-  local col = vim.fn.match(line_to_cursor, '\\k*$')
-  col = col + 1
-  local prefix = line:sub(col, cursor_pos)
+  local col = vim.fn.match(line_to_cursor, '\\k*$') + 1
   local params = lsp.util.make_position_params()
   local _, cancel_req = request(0, 'textDocument/completion', params, function(err, result, ctx)
     local client_id = ctx.client_id
@@ -160,16 +210,23 @@ function M.trigger_completion()
       return
     end
     completion_ctx.isIncomplete = result.isIncomplete
+    local line_changed = api.nvim_win_get_cursor(0)[1] ~= lnum
     local mode = api.nvim_get_mode()['mode']
-    if mode == 'i' or mode == 'ic' then
-      local opts = client_settings[client_id] or {}
-      local matches = M.text_document_completion_list_to_complete_items(
-        result,
-        prefix,
-        opts.server_side_fuzzy_completion
-      )
-      vim.fn.complete(col, matches)
+    if line_changed or not (mode == 'i' or mode == 'ic') then
+      return
     end
+    local client = vim.lsp.get_client_by_id(client_id)
+    local items = lsp.util.extract_completion_items(result)
+    local encoding = client and client.offset_encoding or 'utf-16'
+    local startbyte = adjust_start_col(lnum, line, items, encoding) or col
+    local opts = client_settings[client_id] or {}
+    local prefix = line:sub(startbyte, cursor_pos)
+    local matches = M.text_document_completion_list_to_complete_items(
+      result,
+      prefix,
+      opts.server_side_fuzzy_completion
+    )
+    vim.fn.complete(startbyte, matches)
   end)
   table.insert(completion_ctx.pending_requests, cancel_req)
 end
