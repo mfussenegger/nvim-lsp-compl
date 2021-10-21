@@ -233,21 +233,24 @@ end
 
 
 function M._InsertCharPre(server_side_fuzzy_completion)
+  local pumvisible = tonumber(vim.fn.pumvisible()) == 1
+  if pumvisible then
+    if completion_ctx.isIncomplete or server_side_fuzzy_completion then
+      reset_timer()
+      timer = vim.loop.new_timer()
+
+      -- Calling vim.fn.complete will trigger `CompleteDone` for the active completion window;
+      -- → suppress it to avoid resetting the completion_ctx
+      completion_ctx.suppress_completeDone = true
+      timer:start(100, 0, vim.schedule_wrap(M.trigger_completion))
+    end
+    return
+  end
+
   if timer then
     return
   end
   local char = api.nvim_get_vvar('char')
-  local pumvisible = tonumber(vim.fn.pumvisible()) == 1
-  if pumvisible then
-    if completion_ctx.isIncomplete or server_side_fuzzy_completion then
-      -- Calling vim.fn.complete will trigger `CompleteDone` for the active completion window;
-      -- → suppress it to avoid resetting the completion_ctx
-      completion_ctx.suppress_completeDone = true
-      timer = vim.loop.new_timer()
-      timer:start(150, 0, vim.schedule_wrap(M.trigger_completion))
-    end
-    return
-  end
   local triggers = triggers_by_buf[api.nvim_get_current_buf()] or {}
   for _, entry in pairs(triggers) do
     local chars, fn = unpack(entry)
