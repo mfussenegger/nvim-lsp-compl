@@ -67,7 +67,7 @@ local function get_documentation(item)
 end
 
 
-function M.text_document_completion_list_to_complete_items(result, prefix, fuzzy)
+function M.text_document_completion_list_to_complete_items(result, _, fuzzy)
   local items = lsp.util.extract_completion_items(result)
   if #items == 0 then
     return {}
@@ -108,20 +108,18 @@ function M.text_document_completion_list_to_complete_items(result, prefix, fuzzy
     else
       word = (item.textEdit and item.textEdit.newText) or item.insertText or item.label
     end
-    if fuzzy or vim.startswith(word, prefix) then
-      table.insert(matches, {
-        word = word,
-        abbr = item.label,
-        kind = kind,
-        menu = item.detail or '',
-        info = info,
-        icase = 1,
-        dup = 1,
-        empty = 1,
-        equal = fuzzy and 1 or 0,
-        user_data = item
-      })
-    end
+    table.insert(matches, {
+      word = word,
+      abbr = item.label,
+      kind = kind,
+      menu = item.detail or '',
+      info = info,
+      icase = 1,
+      dup = 1,
+      empty = 1,
+      equal = fuzzy and 1 or 0,
+      user_data = item
+    })
   end
   table.sort(matches, function(a, b)
     return (a.user_data.sortText or a.user_data.label) < (b.user_data.sortText or b.user_data.label)
