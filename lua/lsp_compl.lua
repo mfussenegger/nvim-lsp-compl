@@ -2,6 +2,8 @@ local api = vim.api
 local lsp = vim.lsp
 local timer = nil
 local triggers_by_buf = {}
+local rtt_ms = 50
+local ns_to_ms = 0.000001
 local M = {}
 local SNIPPET = 2
 
@@ -191,6 +193,27 @@ local function adjust_start_col(lnum, line, items, encoding)
 end
 
 
+local function exp_avg(window, warmup)
+  local count = 0
+  local sum = 0
+  local value = 0
+
+  return function(sample)
+    if count < warmup then
+      count = count + 1
+      sum = sum + sample
+      value = sum / count
+    else
+      local factor = 2.0 / (window + 1)
+      value = value * (1 - factor) + sample * factor
+    end
+    return value
+  end
+end
+
+local compute_new_average = exp_avg(10, 10)
+
+
 function M.trigger_completion()
   reset_timer()
   completion_ctx.cancel_pending()
@@ -199,7 +222,10 @@ function M.trigger_completion()
   local line_to_cursor = line:sub(1, cursor_pos)
   local col = vim.fn.match(line_to_cursor, '\\k*$') + 1
   local params = lsp.util.make_position_params()
+  local start = vim.loop.hrtime()
   local _, cancel_req = request(0, 'textDocument/completion', params, function(err, result, ctx)
+    local end_ = vim.loop.hrtime()
+    rtt_ms = compute_new_average((end_ - start) * ns_to_ms)
     local client_id = ctx.client_id
     completion_ctx.pending_requests = {}
     assert(not err, vim.inspect(err))
@@ -230,17 +256,18 @@ function M.trigger_completion()
 end
 
 
-function M._InsertCharPre(server_side_fuzzy_completion)
+function M._InsertCharPre(client_id)
+  local opts = client_settings[client_id]
   local pumvisible = tonumber(vim.fn.pumvisible()) == 1
   if pumvisible then
-    if completion_ctx.isIncomplete or server_side_fuzzy_completion then
+    if completion_ctx.isIncomplete or opts.server_side_fuzzy_completion then
       reset_timer()
       timer = vim.loop.new_timer()
 
       -- Calling vim.fn.complete will trigger `CompleteDone` for the active completion window;
       -- → suppress it to avoid resetting the completion_ctx
       completion_ctx.suppress_completeDone = true
-      timer:start(100, 0, vim.schedule_wrap(M.trigger_completion))
+      timer:start(opts.subsequent_debounce or rtt_ms, 0, vim.schedule_wrap(M.trigger_completion))
     end
     return
   end
@@ -254,7 +281,7 @@ function M._InsertCharPre(server_side_fuzzy_completion)
     local chars, fn = unpack(entry)
     if vim.tbl_contains(chars, char) then
       timer = vim.loop.new_timer()
-      timer:start(50, 0, function()
+      timer:start(opts.leading_debounce, 0, function()
         reset_timer()
         vim.schedule(fn)
       end)
@@ -413,14 +440,19 @@ end
 
 
 function M.attach(client, bufnr, opts)
-  opts = opts or {}
+  opts = vim.tbl_extend('keep', opts or {}, {
+    server_side_fuzzy_completion = false,
+    leading_debounce = 25,
+    subsequent_debounce = nil,
+    trigger_on_delete = false,
+  })
   client_settings[client.id] = opts
   vim.cmd(string.format('augroup lsp_compl_%d_%d', client.id, bufnr))
   vim.cmd('au!')
   vim.cmd(string.format(
     "autocmd InsertCharPre <buffer=%d> lua require'lsp_compl'._InsertCharPre(%s)",
     bufnr,
-    opts.server_side_fuzzy_completion or false
+    client.id
   ))
   if opts.trigger_on_delete then
     vim.cmd(string.format("autocmd TextChangedP <buffer=%d> lua require'lsp_compl'._TextChangedP()", bufnr))
