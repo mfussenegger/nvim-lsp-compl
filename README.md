@@ -1,6 +1,6 @@
 # nvim-lsp-compl
 
-A fast and asynchronous auto-completion plugin for Neovim >= 0.5, focused on LSP.
+A fast and asynchronous auto-completion plugin for Neovim >= 0.5.1, focused on LSP.
 
 
 ## Motivation
@@ -37,7 +37,7 @@ If you need anything else, you better use [nvim-compe][1].
 
 ## Installation
 
-- Install Neovim >= 0.5
+- Install Neovim >= 0.5.1
 - Install nvim-lsp-compl like any other plugin
   - If using [vim-plug][2]: `Plug 'mfussenegger/nvim-lsp-compl'`
   - If using [packer.nvim][3]: `use 'mfussenegger/nvim-lsp-compl'`

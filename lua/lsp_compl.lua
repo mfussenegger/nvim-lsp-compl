@@ -8,30 +8,6 @@ local M = {}
 local SNIPPET = 2
 
 
-local function mk_handler(fn)
-  return function(...)
-    local config_or_client_id = select(4, ...)
-    local is_new = type(config_or_client_id) ~= 'number'
-    if is_new then
-      fn(...)
-    else
-      local err = select(1, ...)
-      local method = select(2, ...)
-      local result = select(3, ...)
-      local client_id = select(4, ...)
-      local bufnr = select(5, ...)
-      local config = select(6, ...)
-      fn(err, result, { method = method, client_id = client_id, bufnr = bufnr }, config)
-    end
-  end
-end
-
-
-local function request(bufnr, method, params, handler)
-  return lsp.buf_request(bufnr, method, params, mk_handler(handler))
-end
-
-
 local client_settings = {}
 local completion_ctx
 completion_ctx = {
@@ -223,7 +199,7 @@ function M.trigger_completion()
   local col = vim.fn.match(line_to_cursor, '\\k*$') + 1
   local params = lsp.util.make_position_params()
   local start = vim.loop.hrtime()
-  local _, cancel_req = request(0, 'textDocument/completion', params, function(err, result, ctx)
+  local _, cancel_req = lsp.buf_request(0, 'textDocument/completion', params, function(err, result, ctx)
     local end_ = vim.loop.hrtime()
     rtt_ms = compute_new_average((end_ - start) * ns_to_ms)
     local client_id = ctx.client_id
@@ -375,7 +351,7 @@ function M._CompleteDone(resolveEdits)
     end
     apply_text_edits(bufnr, lnum, item.additionalTextEdits)
   elseif resolveEdits and type(item) == "table" then
-    local _, cancel_req = request(bufnr, 'completionItem/resolve', item, function(err, result)
+    local _, cancel_req = lsp.buf_request(bufnr, 'completionItem/resolve', item, function(err, result)
       completion_ctx.pending_requests = {}
       assert(not err, vim.inspect(err))
       if expand_snippet then
@@ -412,29 +388,10 @@ end
 local function signature_help()
   reset_timer()
   local params = lsp.util.make_position_params()
-  request(0, 'textDocument/signatureHelp', params, function(...)
-    local config_or_client_id = select(4, ...)
-    local is_new = type(config_or_client_id) ~= 'number'
-    local config_idx = is_new and 4 or 6
-    local config = select(config_idx, ...) or {}
-    config.focusable = false
-    if is_new then
-      vim.lsp.handlers['textDocument/signatureHelp'](
-        select(1, ...),
-        select(2, ...),
-        select(3, ...),
-        config
-      )
-    else
-      vim.lsp.handlers['textDocument/signatureHelp'](
-        select(1, ...),
-        select(2, ...),
-        select(3, ...),
-        select(4, ...),
-        select(5, ...),
-        config
-      )
-    end
+  lsp.buf_request(0, 'textDocument/signatureHelp', params, function(err, result, ctx, config)
+    local conf = config and vim.deepcopy(config) or {}
+    conf.focusable = false
+    vim.lsp.handlers['textDocument/signatureHelp'](err, result, ctx, conf)
   end)
 end
 
