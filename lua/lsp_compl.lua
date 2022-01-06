@@ -28,6 +28,7 @@ completion_ctx = {
     completion_ctx.expand_snippet = false
     completion_ctx.isIncomplete = false
     completion_ctx.suppress_completeDone = false
+    completion_ctx.last_request = nil
     completion_ctx.cancel_pending()
   end
 }
@@ -199,6 +200,7 @@ function M.trigger_completion()
   local col = vim.fn.match(line_to_cursor, '\\k*$') + 1
   local params = lsp.util.make_position_params()
   local start = vim.loop.hrtime()
+  completion_ctx.last_request = start
   local _, cancel_req = lsp.buf_request(0, 'textDocument/completion', params, function(err, result, ctx)
     local end_ = vim.loop.hrtime()
     rtt_ms = compute_new_average((end_ - start) * ns_to_ms)
@@ -232,18 +234,33 @@ function M.trigger_completion()
 end
 
 
+local function next_debounce(subsequent_debounce)
+  local debounce_ms = subsequent_debounce or rtt_ms
+  if not completion_ctx.last_request then
+    return debounce_ms
+  end
+  local ms_since_request = (vim.loop.hrtime() - completion_ctx.last_request) * ns_to_ms
+  return math.max((ms_since_request - debounce_ms) * -1, 0)
+end
+
+
 function M._InsertCharPre(client_id)
   local opts = client_settings[client_id]
   local pumvisible = tonumber(vim.fn.pumvisible()) == 1
   if pumvisible then
     if completion_ctx.isIncomplete or opts.server_side_fuzzy_completion then
       reset_timer()
-      timer = vim.loop.new_timer()
-
       -- Calling vim.fn.complete will trigger `CompleteDone` for the active completion window;
       -- → suppress it to avoid resetting the completion_ctx
       completion_ctx.suppress_completeDone = true
-      timer:start(opts.subsequent_debounce or rtt_ms, 0, vim.schedule_wrap(M.trigger_completion))
+
+      local debounce_ms = next_debounce(opts.subsequent_debounce)
+      if debounce_ms == 0 then
+        M.trigger_completion()
+      else
+        timer = vim.loop.new_timer()
+        timer:start(debounce_ms, 0, vim.schedule_wrap(M.trigger_completion))
+      end
     end
     return
   end
