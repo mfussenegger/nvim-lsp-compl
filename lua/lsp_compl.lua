@@ -311,13 +311,13 @@ function M._InsertLeave()
 end
 
 
-local function apply_text_edits(bufnr, lnum, text_edits)
+local function apply_text_edits(bufnr, lnum, text_edits, offset_encoding)
   -- Text edit in the same line would mess with the cursor position
   local edits = vim.tbl_filter(
     function(x) return x.range.start.line ~= lnum end,
     text_edits or {}
   )
-  lsp.util.apply_text_edits(edits, bufnr)
+  lsp.util.apply_text_edits(edits, bufnr, offset_encoding)
 end
 
 
@@ -338,7 +338,7 @@ local function apply_snippet(item, suffix)
 end
 
 
-function M._CompleteDone(resolveEdits)
+function M._CompleteDone(client_id, resolveEdits)
   if completion_ctx.suppress_completeDone then
     completion_ctx.suppress_completeDone = false
     return
@@ -362,11 +362,13 @@ function M._CompleteDone(resolveEdits)
     api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
   end
   completion_ctx.reset()
+  local client = vim.lsp.get_client_by_id(client_id)
+  local offset_encoding = client and client.offset_encoding or 'utf-16'
   if item.additionalTextEdits then
     if expand_snippet then
       apply_snippet(item, suffix)
     end
-    apply_text_edits(bufnr, lnum, item.additionalTextEdits)
+    apply_text_edits(bufnr, lnum, item.additionalTextEdits, offset_encoding)
   elseif resolveEdits and type(item) == "table" then
     local _, cancel_req = lsp.buf_request(bufnr, 'completionItem/resolve', item, function(err, result)
       completion_ctx.pending_requests = {}
@@ -374,7 +376,7 @@ function M._CompleteDone(resolveEdits)
       if expand_snippet then
         apply_snippet(item, suffix)
       end
-      apply_text_edits(bufnr, lnum, result.additionalTextEdits)
+      apply_text_edits(bufnr, lnum, result.additionalTextEdits, offset_encoding)
     end)
     table.insert(completion_ctx.pending_requests, cancel_req)
   elseif expand_snippet then
@@ -434,8 +436,9 @@ function M.attach(client, bufnr, opts)
   end
   vim.cmd(string.format("autocmd InsertLeave <buffer=%d> lua require'lsp_compl'._InsertLeave()", bufnr))
   vim.cmd(string.format(
-    "autocmd CompleteDone <buffer=%d> lua require'lsp_compl'._CompleteDone(%s)",
+    "autocmd CompleteDone <buffer=%d> lua require'lsp_compl'._CompleteDone(%s, %s)",
     bufnr,
+    client.id,
     (client.server_capabilities.completionProvider or {}).resolveProvider
   ))
   vim.cmd('augroup end')
