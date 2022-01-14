@@ -256,7 +256,7 @@ function M._InsertCharPre(client_id)
 
       local debounce_ms = next_debounce(opts.subsequent_debounce)
       if debounce_ms == 0 then
-        M.trigger_completion()
+        vim.schedule(M.trigger_completion)
       else
         timer = vim.loop.new_timer()
         timer:start(debounce_ms, 0, vim.schedule_wrap(M.trigger_completion))
