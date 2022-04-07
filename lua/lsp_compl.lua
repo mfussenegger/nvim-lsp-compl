@@ -378,23 +378,21 @@ local function complete_done(client_id, resolveEdits)
   completion_ctx.reset()
   local client = vim.lsp.get_client_by_id(client_id)
   local offset_encoding = client and client.offset_encoding or 'utf-16'
+  if expand_snippet then
+    apply_snippet(item, suffix)
+  end
   if item.additionalTextEdits then
-    if expand_snippet then
-      apply_snippet(item, suffix)
-    end
     apply_text_edits(bufnr, lnum, item.additionalTextEdits, offset_encoding)
   elseif resolveEdits and type(item) == "table" then
     local _, cancel_req = lsp.buf_request(bufnr, 'completionItem/resolve', item, function(err, result)
       completion_ctx.pending_requests = {}
-      assert(not err, vim.inspect(err))
-      if expand_snippet then
-        apply_snippet(item, suffix)
+      if err then
+        vim.notify(err.message, vim.log.levels.WARN)
+      elseif result and result.additionalTextEdits then
+        apply_text_edits(bufnr, lnum, result.additionalTextEdits, offset_encoding)
       end
-      apply_text_edits(bufnr, lnum, result.additionalTextEdits, offset_encoding)
     end)
     table.insert(completion_ctx.pending_requests, cancel_req)
-  elseif expand_snippet then
-    apply_snippet(item, suffix)
   end
 end
 
