@@ -1,7 +1,8 @@
 # nvim-lsp-compl
 
-A fast and asynchronous auto-completion plugin for Neovim >= 0.5.1, focused on LSP.
+A fast and asynchronous auto-completion plugin for Neovim >= 0.7.0, focused on LSP.
 
+For Neovim 0.5.1 support, checkout `ad95138d56b7c84fb02e7c7078e8f5e61fda4596`.
 
 ## Motivation
 
@@ -37,7 +38,7 @@ If you need anything else, you better use [nvim-compe][1].
 
 ## Installation
 
-- Install Neovim >= 0.5.1
+- Install Neovim >= 0.7.0
 - Install nvim-lsp-compl like any other plugin
   - If using [vim-plug][2]: `Plug 'mfussenegger/nvim-lsp-compl'`
   - If using [packer.nvim][3]: `use 'mfussenegger/nvim-lsp-compl'`
@@ -67,7 +68,9 @@ lua require'lspconfig'.pyls.setup{
 To expand snippets you need to explicitly accept a completion candidate:
 
 ```vimL
-inoremap <expr> <CR> (luaeval("require'lsp_compl'.accept_pum()") ? "\<c-y>" : "\<CR>")
+vim.keymap.set('i', '<CR>', function()
+  return require('lsp_compl').accept_pum() and '<c-y>' or '<CR>'
+end, { expr = true })
 ```
 
 Currently snippet expansion tries [LuaSnip][luasnip] if available and otherwise falls back to use [vim-vsnip][vsnip], but you can override the `expand_snippet` function to use a different snippet engine:

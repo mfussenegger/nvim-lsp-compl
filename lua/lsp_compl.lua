@@ -7,8 +7,17 @@ local ns_to_ms = 0.000001
 local M = {}
 local SNIPPET = 2
 
+if vim.fn.has('nvim-0.7') ~= 1 then
+  vim.notify(
+    'LSP-compl requires nvim-0.7 or higher. '
+    .. 'Stick to `ad95138d56b7c84fb02e7c7078e8f5e61fda4596` if you use an earlier version of neovim',
+    vim.log.levels.ERROR
+  )
+  return
+end
 
-local client_settings = {}
+
+local clients = {}
 local completion_ctx
 completion_ctx = {
   expand_snippet = false,
@@ -226,7 +235,7 @@ function M.trigger_completion()
     local items = lsp.util.extract_completion_items(result)
     local encoding = client and client.offset_encoding or 'utf-16'
     local startbyte = adjust_start_col(lnum, line, items, encoding) or col
-    local opts = client_settings[client_id] or {}
+    local opts = (clients[client_id] or {}).opts
     local prefix = line:sub(startbyte, cursor_pos)
     local matches = M.text_document_completion_list_to_complete_items(
       result,
@@ -249,8 +258,8 @@ local function next_debounce(subsequent_debounce)
 end
 
 
-function M._InsertCharPre(client_id)
-  local opts = client_settings[client_id]
+local function insert_char_pre(client_id)
+  local opts = clients[client_id].opts
   local pumvisible = tonumber(vim.fn.pumvisible()) == 1
   if pumvisible then
     if completion_ctx.isIncomplete or opts.server_side_fuzzy_completion then
@@ -289,12 +298,12 @@ function M._InsertCharPre(client_id)
 end
 
 
-function M._TextChangedP()
+local function text_changed_p()
   completion_ctx.cursor = api.nvim_win_get_cursor(0)
 end
 
 
-function M._TextChangedI()
+local function text_changed_i()
   local cursor = completion_ctx.cursor
   if not cursor or timer then
     return
@@ -309,7 +318,7 @@ function M._TextChangedI()
 end
 
 
-function M._InsertLeave()
+local function insert_leave()
   reset_timer()
   completion_ctx.cursor = nil
   completion_ctx.reset()
@@ -343,7 +352,7 @@ local function apply_snippet(item, suffix)
 end
 
 
-function M._CompleteDone(client_id, resolveEdits)
+local function complete_done(client_id, resolveEdits)
   if completion_ctx.suppress_completeDone then
     completion_ctx.suppress_completeDone = false
     return
@@ -401,11 +410,13 @@ end
 
 
 function M.detach(client_id, bufnr)
-  vim.cmd(string.format('augroup lsp_compl_%d_%d', client_id, bufnr))
-  vim.cmd('au!')
-  vim.cmd('augroup end')
-  vim.cmd(string.format('augroup! lsp_compl_%d_%d', client_id, bufnr))
-  client_settings[client_id] = nil
+  local group = string.format('lsp_compl_%d_%d', client_id, bufnr)
+  api.nvim_del_agroup_by_name(group)
+  local c = clients[client_id]
+  c.num_attached = c.num_attached - 1
+  if (c.num_attached == 0) then
+    clients[client_id] = nil
+  end
 end
 
 
@@ -427,26 +438,31 @@ function M.attach(client, bufnr, opts)
     subsequent_debounce = nil,
     trigger_on_delete = false,
   })
-  client_settings[client.id] = opts
-  vim.cmd(string.format('augroup lsp_compl_%d_%d', client.id, bufnr))
-  vim.cmd('au!')
-  vim.cmd(string.format(
-    "autocmd InsertCharPre <buffer=%d> lua require'lsp_compl'._InsertCharPre(%s)",
-    bufnr,
-    client.id
-  ))
+  local client_settings = clients[client.id] or {
+    num_attached = 0
+  }
+  clients[client.id] = client_settings
+  client_settings.num_attached = client_settings.num_attached + 1
+  client_settings.opts = opts
+  local group = string.format('lsp_compl_%d_%d', client.id, bufnr)
+  api.nvim_create_augroup(group, { clear = true })
+  local create_autocmd = api.nvim_create_autocmd
+  create_autocmd('InsertCharPre', {
+    group = group,
+    buffer = bufnr,
+    callback = function() insert_char_pre(client.id) end,
+  })
   if opts.trigger_on_delete then
-    vim.cmd(string.format("autocmd TextChangedP <buffer=%d> lua require'lsp_compl'._TextChangedP()", bufnr))
-    vim.cmd(string.format("autocmd TextChangedI <buffer=%d> lua require'lsp_compl'._TextChangedI()", bufnr))
+    create_autocmd('TextChangedP', { group = group, buffer = bufnr, callback = text_changed_p })
+    create_autocmd('TextChangedI', { group = group, buffer = bufnr, callback = text_changed_i })
   end
-  vim.cmd(string.format("autocmd InsertLeave <buffer=%d> lua require'lsp_compl'._InsertLeave()", bufnr))
-  vim.cmd(string.format(
-    "autocmd CompleteDone <buffer=%d> lua require'lsp_compl'._CompleteDone(%s, %s)",
-    bufnr,
-    client.id,
-    (client.server_capabilities.completionProvider or {}).resolveProvider
-  ))
-  vim.cmd('augroup end')
+  create_autocmd('InsertLeave', { group = group, buffer = bufnr, callback = insert_leave, })
+  local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
+  create_autocmd('CompleteDone', {
+    group = group,
+    buffer = bufnr,
+    callback = function() complete_done(client.id, resolve_edits) end,
+  })
 
   local triggers = triggers_by_buf[bufnr]
   if not triggers then
