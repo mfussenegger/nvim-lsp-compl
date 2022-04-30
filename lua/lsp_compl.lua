@@ -55,8 +55,21 @@ local function get_documentation(item)
 end
 
 
+--- Extract the completion items from a `textDocument/completion` response.
+---
+---@param result table `CompletionItem[] | CompletionList | null`
+---@returns (table) `CompletionItem[]`
+local function get_completion_items(result)
+  if type(result) == 'table' and result.items then
+    return result.items
+  else
+    return result or {}
+  end
+end
+
+
 function M.text_document_completion_list_to_complete_items(result, _, fuzzy)
-  local items = lsp.util.extract_completion_items(result)
+  local items = get_completion_items(result)
   if #items == 0 then
     return {}
   end
@@ -232,7 +245,7 @@ function M.trigger_completion()
       return
     end
     local client = vim.lsp.get_client_by_id(client_id)
-    local items = lsp.util.extract_completion_items(result)
+    local items = get_completion_items(result)
     local encoding = client and client.offset_encoding or 'utf-16'
     local startbyte = adjust_start_col(lnum, line, items, encoding) or col
     local opts = (clients[client_id] or {}).opts
