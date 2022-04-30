@@ -94,12 +94,14 @@ The function takes a single argument - the snippet - and is supposed to expand i
 
 ### Can I disable the automatic signature popup?
 
-Yes, if you set the `signature_help_trigger_characters` to an empty table:
+Yes, if you set the `triggerCharacters` of the server to an empty table:
 
 
 ```lua
 on_attach = function(client, bufnr)
-  client.resolved_capabilities.signature_help_trigger_characters = {}
+  if client.server_capabilities.signatureHelpProvider then
+    client.server_capabilities.signatureHelpProvider.triggerCharacters = {}
+  end
   require'lsp_compl'.attach(client, bufnr)
 end
 ```
