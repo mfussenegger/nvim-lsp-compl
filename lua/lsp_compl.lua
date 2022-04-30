@@ -472,7 +472,7 @@ function M.attach(client, bufnr, opts)
       end
     })
   end
-  local signature_triggers = client.resolved_capabilities.signature_help_trigger_characters
+  local signature_triggers = vim.tbl_get(client.server_capabilities, 'signatureHelpProvider', 'triggerCharacters')
   if signature_triggers and #signature_triggers > 0 then
     table.insert(triggers, { signature_triggers, signature_help })
   end
