@@ -422,7 +422,7 @@ end
 
 function M.detach(client_id, bufnr)
   local group = string.format('lsp_compl_%d_%d', client_id, bufnr)
-  api.nvim_del_agroup_by_name(group)
+  api.nvim_del_augroup_by_name(group)
   local c = clients[client_id]
   c.num_attached = c.num_attached - 1
   if (c.num_attached == 0) then
