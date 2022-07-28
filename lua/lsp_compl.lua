@@ -365,7 +365,7 @@ local function apply_snippet(item, suffix)
 end
 
 
-local function complete_done(client_id, resolveEdits)
+local function complete_done(client_id)
   if completion_ctx.suppress_completeDone then
     completion_ctx.suppress_completeDone = false
     return
@@ -394,18 +394,23 @@ local function complete_done(client_id, resolveEdits)
   if expand_snippet then
     apply_snippet(item, suffix)
   end
+  local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
   if item.additionalTextEdits then
     apply_text_edits(bufnr, lnum, item.additionalTextEdits, offset_encoding)
-  elseif resolveEdits and type(item) == "table" then
-    local _, cancel_req = lsp.buf_request(bufnr, 'completionItem/resolve', item, function(err, result)
+  elseif resolve_edits and type(item) == "table" then
+    local ok, request_id = client.request('completionItem/resolve', item, function(err, result)
       completion_ctx.pending_requests = {}
       if err then
         vim.notify(err.message, vim.log.levels.WARN)
       elseif result and result.additionalTextEdits then
         apply_text_edits(bufnr, lnum, result.additionalTextEdits, offset_encoding)
       end
-    end)
-    table.insert(completion_ctx.pending_requests, cancel_req)
+    end, bufnr)
+    if ok then
+      table.insert(completion_ctx.pending_requests, function()
+        client.cancel_request(request_id)
+      end)
+    end
   end
 end
 
@@ -468,11 +473,10 @@ function M.attach(client, bufnr, opts)
     create_autocmd('TextChangedI', { group = group, buffer = bufnr, callback = text_changed_i })
   end
   create_autocmd('InsertLeave', { group = group, buffer = bufnr, callback = insert_leave, })
-  local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
   create_autocmd('CompleteDone', {
     group = group,
     buffer = bufnr,
-    callback = function() complete_done(client.id, resolve_edits) end,
+    callback = function() complete_done(client.id) end,
   })
 
   local triggers = triggers_by_buf[bufnr]
