@@ -96,7 +96,23 @@ function M.text_document_completion_list_to_complete_items(result, _, fuzzy)
       --      label = "query_definition(pattern)",
       --]]
       if item.textEdit then
-        word = item.insertText or item.textEdit.newText
+        local text = item.insertText or item.textEdit.newText
+
+        -- Use label instead of text if text has different starting characters.
+        -- label is used as abbr (=displayed), but word is used for filtering
+        -- This is required for things like postfix completion.
+        -- E.g. in lua:
+        --
+        --    local f = {}
+        --    f@|
+        --      ^
+        --      - cursor
+        --
+        --    item.textEdit.newText: table.insert(f, $0)
+        --    label: insert
+        --
+        -- Typing `i` would remove the candidate because newText starts with `t`.
+        word = (fuzzy or vim.startswith(text, item.label)) and text or item.label
       elseif item.insertText then
         if #item.label < #item.insertText then
           word = item.label
@@ -338,16 +354,6 @@ local function insert_leave()
 end
 
 
-local function apply_text_edits(bufnr, lnum, text_edits, offset_encoding)
-  -- Text edit in the same line would mess with the cursor position
-  local edits = vim.tbl_filter(
-    function(x) return x.range.start.line ~= lnum end,
-    text_edits or {}
-  )
-  lsp.util.apply_text_edits(edits, bufnr, offset_encoding)
-end
-
-
 M.expand_snippet = function(snippet)
   local ok, luasnip = pcall(require, 'luasnip')
   local fn = ok and luasnip.lsp_expand or vim.fn['vsnip#anonymous']
@@ -389,11 +395,11 @@ local function complete_done(client_id)
     api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
   end
   completion_ctx.reset()
-  local client = vim.lsp.get_client_by_id(client_id)
-  local offset_encoding = client and client.offset_encoding or 'utf-16'
+  local client = vim.lsp.get_client_by_id(client_id) or {}
+  local offset_encoding = client.offset_encoding or 'utf-16'
   local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
   if item.additionalTextEdits then
-    apply_text_edits(bufnr, lnum, item.additionalTextEdits, offset_encoding)
+    lsp.util.apply_text_edits(item.additionalTextEdits, bufnr, offset_encoding)
     if expand_snippet then
       apply_snippet(item, suffix)
     end
@@ -403,7 +409,7 @@ local function complete_done(client_id)
       if err then
         vim.notify(err.message, vim.log.levels.WARN)
       elseif result and result.additionalTextEdits then
-        apply_text_edits(bufnr, lnum, result.additionalTextEdits, offset_encoding)
+        lsp.util.apply_text_edits(result.additionalTextEdits, bufnr, offset_encoding)
       end
       if expand_snippet then
         apply_snippet(item, suffix)
