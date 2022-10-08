@@ -68,7 +68,7 @@ local function get_completion_items(result)
 end
 
 
-function M.text_document_completion_list_to_complete_items(result, _, fuzzy)
+function M.text_document_completion_list_to_complete_items(result, fuzzy)
   local items = get_completion_items(result)
   if #items == 0 then
     return {}
@@ -113,7 +113,7 @@ function M.text_document_completion_list_to_complete_items(result, _, fuzzy)
         --
         -- Typing `i` would remove the candidate because newText starts with `t`.
         word = (fuzzy or vim.startswith(text, item.label)) and text or item.label
-      elseif item.insertText then
+      elseif item.insertText and item.insertText ~= "" then
         if #item.label < #item.insertText then
           word = item.label
         else
@@ -122,8 +122,12 @@ function M.text_document_completion_list_to_complete_items(result, _, fuzzy)
       else
         word = item.label
       end
+    elseif item.textEdit then
+      word = item.textEdit.newText
+    elseif item.insertText and item.insertText ~= "" then
+      word = item.insertText
     else
-      word = (item.textEdit and item.textEdit.newText) or item.insertText or item.label
+      word = item.label
     end
     table.insert(matches, {
       word = word,
@@ -143,8 +147,6 @@ function M.text_document_completion_list_to_complete_items(result, _, fuzzy)
   end)
   return matches
 end
-
-
 
 
 local function reset_timer()
@@ -265,10 +267,8 @@ function M.trigger_completion()
     local encoding = client and client.offset_encoding or 'utf-16'
     local startbyte = adjust_start_col(lnum, line, items, encoding) or col
     local opts = (clients[client_id] or {}).opts
-    local prefix = line:sub(startbyte, cursor_pos)
     local matches = M.text_document_completion_list_to_complete_items(
       result,
-      prefix,
       opts.server_side_fuzzy_completion
     )
     vim.fn.complete(startbyte, matches)
