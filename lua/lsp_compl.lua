@@ -385,7 +385,11 @@ local function complete_done(client_id)
   lnum = lnum - 1
   local item = completed_item.user_data
   local bufnr = api.nvim_get_current_buf()
-  local expand_snippet = item.insertTextFormat == SNIPPET and completion_ctx.expand_snippet
+  local expand_snippet = (
+    item.insertTextFormat == SNIPPET
+    and completion_ctx.expand_snippet
+    and (item.textEdit ~= nil or item.insertText ~= nil)
+  )
   local suffix = nil
   if expand_snippet then
     -- Remove the already inserted word
