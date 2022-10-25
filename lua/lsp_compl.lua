@@ -16,7 +16,17 @@ if vim.fn.has('nvim-0.7') ~= 1 then
   return
 end
 
+--- @class lsp_compl.client_opts
+--- @field server_side_fuzzy_completion boolean
+--- @field leading_debounce number
+--- @field subsequent_debounce number|nil
+--- @field trigger_on_delete boolean
 
+--- @class lsp_compl.client
+--- @field num_attached number
+--- @field opts lsp_compl.client_opts
+
+--- @type table<number, lsp_compl.client>
 local clients = {}
 local completion_ctx
 completion_ctx = {
@@ -236,42 +246,94 @@ end
 local compute_new_average = exp_avg(10, 10)
 
 
+local function request(opts, callback)
+  local attached_clients = {}
+  for client_id, _ in pairs(clients) do
+    local client = vim.lsp.get_client_by_id(client_id)
+    if client and lsp.buf_is_attached(opts.bufnr, client.id) then
+      table.insert(attached_clients, client)
+    end
+  end
+  local results = {}
+  local request_ids = {}
+  local remaining_results = #attached_clients
+  for _, client in pairs(attached_clients) do
+    local params = lsp.util.make_position_params(opts.win, client.offset_encoding)
+    local ok, request_id = client.request('textDocument/completion', params, function(err, result)
+      results[client.id] = { err = err, result = result }
+      remaining_results = remaining_results - 1
+      if remaining_results == 0 then
+        callback(results)
+      end
+    end)
+    if ok then
+      request_ids[client.id] = request_id
+    end
+  end
+  return function()
+    for client_id, request_id in pairs(request_ids) do
+      local client = vim.lsp.get_client_by_id(client_id)
+      if client then
+        client.cancel_request(request_id)
+      end
+    end
+  end
+end
+
+
 function M.trigger_completion()
   reset_timer()
   completion_ctx.cancel_pending()
-  local lnum, cursor_pos = unpack(api.nvim_win_get_cursor(0))
+  local win = api.nvim_get_current_win()
+  local bufnr = api.nvim_get_current_buf()
+  local lnum, cursor_pos = unpack(api.nvim_win_get_cursor(win))
   local line = api.nvim_get_current_line()
   local line_to_cursor = line:sub(1, cursor_pos)
   local col = vim.fn.match(line_to_cursor, '\\k*$') + 1
-  local params = lsp.util.make_position_params()
   local start = vim.loop.hrtime()
   completion_ctx.last_request = start
-  local _, cancel_req = lsp.buf_request(0, 'textDocument/completion', params, function(err, result, ctx)
+
+  local cancel_req = request({ bufnr = bufnr, win = win }, function(responses)
     local end_ = vim.loop.hrtime()
     rtt_ms = compute_new_average((end_ - start) * ns_to_ms)
-    local client_id = ctx.client_id
     completion_ctx.pending_requests = {}
-    assert(not err, vim.inspect(err))
-    if not result then
-      print('No completion result')
-      return
-    end
-    completion_ctx.isIncomplete = result.isIncomplete
-    local line_changed = api.nvim_win_get_cursor(0)[1] ~= lnum
+    completion_ctx.isIncomplete = false
+
+    local line_changed = api.nvim_win_get_cursor(win)[1] ~= lnum
     local mode = api.nvim_get_mode()['mode']
     if line_changed or not (mode == 'i' or mode == 'ic') then
       return
     end
-    local client = vim.lsp.get_client_by_id(client_id)
-    local items = get_completion_items(result)
-    local encoding = client and client.offset_encoding or 'utf-16'
-    local startbyte = adjust_start_col(lnum, line, items, encoding) or col
-    local opts = (clients[client_id] or {}).opts
-    local matches = M.text_document_completion_list_to_complete_items(
-      result,
-      opts.server_side_fuzzy_completion
-    )
-    vim.fn.complete(startbyte, matches)
+
+    local all_matches = {}
+    local startbyte
+    for client_id, response in pairs(responses) do
+      assert(not response.err, vim.inspect(response.err))
+      local result = response.result
+      if result then
+        completion_ctx.isIncomplete = completion_ctx.isIncomplete or result.isIncomplete
+        local client = vim.lsp.get_client_by_id(client_id)
+        local items = get_completion_items(result)
+        local encoding = client and client.offset_encoding or 'utf-16'
+        local current_startbyte = adjust_start_col(lnum, line, items, encoding)
+        if startbyte == nil then
+          startbyte = current_startbyte
+        elseif current_startbyte ~= nil and current_startbyte ~= startbyte then
+          startbyte = col
+        end
+        local opts = (clients[client_id] or {}).opts
+        local matches = M.text_document_completion_list_to_complete_items(
+          result,
+          opts.server_side_fuzzy_completion
+        )
+        vim.list_extend(all_matches, matches)
+      end
+    end
+    if next(all_matches) then
+      vim.fn.complete(startbyte or col, all_matches)
+    else
+      print('No completion result')
+    end
   end)
   table.insert(completion_ctx.pending_requests, cancel_req)
 end
