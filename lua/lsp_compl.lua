@@ -399,7 +399,10 @@ local function complete_done(client_id)
     api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
   end
   completion_ctx.reset()
-  local client = vim.lsp.get_client_by_id(client_id) or {}
+  local client = vim.lsp.get_client_by_id(client_id)
+  if not client then
+    return
+  end
   local offset_encoding = client.offset_encoding or 'utf-16'
   local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
   if item.additionalTextEdits then
