@@ -1,6 +1,6 @@
 # nvim-lsp-compl
 
-A fast and asynchronous auto-completion plugin for Neovim >= 0.7.0, focused on LSP.
+A fast and asynchronous auto-completion plugin for Neovim (latest stable and nightly), focused on LSP.
 
 For Neovim 0.5.1 support, checkout `ad95138d56b7c84fb02e7c7078e8f5e61fda4596`.
 
@@ -8,9 +8,9 @@ For Neovim 0.5.1 support, checkout `ad95138d56b7c84fb02e7c7078e8f5e61fda4596`.
 
 Why *another* one?
 
-I wrote the initial code for this within my dotfiles long before plugins like [nvim-compe][1] popped up and tuned it over time to accommodate my workflow.
+I wrote the initial code for this within my dotfiles long before plugins like [nvim-compe][1] or [nvim-cmp][nvim-cmp] popped up and tuned it over time to accommodate my workflow.
 
-There have been some voices looking for something smaller than [nvim-compe][1], so I decided to extract the code from my dotfiles and make it re-usable for others.
+There have been some voices looking for something smaller than the alternatives, so I decided to extract the code from my dotfiles and make it re-usable for others.
 
 
 ## Features
@@ -22,7 +22,15 @@ There have been some voices looking for something smaller than [nvim-compe][1], 
 - Optionally supports server side fuzzy matching
 - Optionally supports LSP snippet expansion if [LuaSnip][luasnip] or [vsnip][vsnip] is installed or a custom snippet-applier is registered
 
-If you need anything else, you better use [nvim-compe][1].
+If you need anything else, you better use one of the others.
+
+
+If you want additional completion sources you'd need to implement a language
+server. A full blown language server would have the advantage that other
+editors can benefit too, but if you'd like to use Neovim functionality, you
+could create a [in-process Lua language
+server](https://zignar.net/2022/10/26/testing-neovim-lsp-plugins/#a-in-process-lsp-server).
+
 
 
 ### Opinionated behaviors:
@@ -38,8 +46,9 @@ If you need anything else, you better use [nvim-compe][1].
 
 ## Installation
 
-- Install Neovim >= 0.7.0
+- Install Neovim (latest stable or nightly)
 - Install nvim-lsp-compl like any other plugin
+  - `git clone https://github.com/mfussenegger/nvim-lsp-compl.git ~/.config/nvim/pack/plugins/start/nvim-lsp-compl`
   - If using [vim-plug][2]: `Plug 'mfussenegger/nvim-lsp-compl'`
   - If using [packer.nvim][3]: `use 'mfussenegger/nvim-lsp-compl'`
 
@@ -168,3 +177,4 @@ inoremap <expr> <BS> (pumvisible() ? "\<BS><cmd> :lua require'lsp_compl'.trigger
 [4]: https://github.com/neovim/nvim-lspconfig
 [vsnip]: https://github.com/hrsh7th/vim-vsnip
 [luasnip]: https://github.com/L3MON4D3/LuaSnip
+[nvim-cmp]: https://github.com/hrsh7th/nvim-cmp
