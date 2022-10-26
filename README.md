@@ -65,7 +65,21 @@ lua require'lspconfig'.pyls.setup{
 }
 ```
 
-To expand snippets you need to explicitly accept a completion candidate:
+To expand snippets you need to extend the client capabilities. In the `config`
+for `vim.lsp.start` (See `:help lsp-quickstart`):
+
+```lua
+local config = {
+    capabilities = vim.tbl_deep_extend(
+        'force',
+        vim.lsp.protocol.make_client_capabilities(),
+        require('lsp_compl').capabilities()
+    ),
+}
+```
+
+
+And explicitly accept a completion candidate:
 
 ```vimL
 vim.keymap.set('i', '<CR>', function()

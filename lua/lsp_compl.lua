@@ -16,6 +16,7 @@ if vim.fn.has('nvim-0.7') ~= 1 then
   return
 end
 
+
 --- @class lsp_compl.client_opts
 --- @field server_side_fuzzy_completion boolean
 --- @field leading_debounce number
@@ -578,6 +579,32 @@ function M.attach(client, bufnr, opts)
   if completion_triggers and #completion_triggers > 0 then
     table.insert(triggers, { completion_triggers, M.trigger_completion })
   end
+end
+
+
+--- Returns the LSP capabilities this plugin adds.
+--- Must be merged into capabilities created with `vim.lsp.protocol.make_client_capabilities()`
+---
+---   local capabilities = vim.tbl_deep_extend(
+---     'force',
+---     vim.lsp.protocol.make_client_capabilities(),
+---     require('lsp_compl').capabilities()
+---   )
+function M.capabilities()
+  local has_snippet_support = pcall(require, 'luasnip') or vim.fn['vsnip#anonymous'] ~= nil
+  return {
+    textDocument = {
+      completion = {
+        completionItem = {
+          snippetSupport = has_snippet_support,
+          labelDetailsSupport = true,
+        },
+        resolveSupport = {
+          properties = {'edit', 'documentation', 'detail'}
+        }
+      }
+    }
+  }
 end
 
 return M
