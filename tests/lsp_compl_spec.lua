@@ -143,4 +143,34 @@ describe('lsp_compl', function()
     assert.are.same('hello', capture.matches[1].word)
     assert.are.same('hallo', capture.matches[2].word)
   end)
+
+  it('uses defaults from itemDefaults', function()
+    local server = new_server({
+      isIncomplete = false,
+      itemDefaults = {
+        editRange = {
+          start = { line = 1, character = 1 },
+          ['end'] = { line = 1, character = 4 },
+        },
+        insertTextFormat = 2,
+        data = 'foobar',
+      },
+      items = {
+        {
+          label = 'hello',
+          data = 'item-property-has-priority',
+          textEditText ='hello',
+        }
+      }
+    })
+    vim.lsp.start({ name = 'server', cmd = server, on_attach = compl.attach })
+    api.nvim_buf_set_lines(buf, 0, -1, true, {'a'})
+    api.nvim_win_set_cursor(win, { 1, 1 })
+    compl.trigger_completion()
+    local candidate = capture.matches[1]
+    assert.are.same('hello', candidate.word)
+    assert.are.same(2, candidate.user_data.insertTextFormat)
+    assert.are.same('item-property-has-priority', candidate.user_data.data)
+    assert.are.same({ line = 1, character = 1}, candidate.user_data.textEdit.range.start)
+  end)
 end)

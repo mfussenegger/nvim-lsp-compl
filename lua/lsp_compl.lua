@@ -54,6 +54,75 @@ completion_ctx = {
 }
 
 
+---@class lsp.CompletionItemLabelDetails
+---@field detail nil|string
+---@field description nil|string
+
+
+---@alias lsp.MarkupKind "plaintext"|"markdown"
+
+---@class lsp.MarkupContent
+---@field kind lsp.MarkupKind
+---@field value string
+
+
+---@alias lsp.InsertTextMode 1|2
+
+---@class lsp.TextEdit
+---@field range lsp.Range
+---@field newText string
+
+---@class lsp.InsertReplaceEdit
+---@field newText string
+---@field insert lsp.Range
+---@field replace lsp.Range
+
+---@class lsp.Command
+
+---@class lsp.Position
+---@field line number
+---@field character number
+
+---@class lsp.Range
+---@field start lsp.Position
+---@field end lsp.Position
+
+---@class lsp.ItemDefaults
+---@field editRange nil|lsp.Range|{insert: lsp.Range, replace: lsp.Range}
+---@field insertTextFormat nil|number
+---@field insertTextMode nil|lsp.InsertTextMode
+---@field data any
+
+---@class lsp.CompletionItem
+---@field label string
+---@field labelDetails nil|lsp.CompletionItemLabelDetails
+---@field kind nil|number
+---@field tags nil|number[]
+---@field detail nil|string
+---@field documentation nil|string|lsp.MarkupContent
+---@field deprecated nil|boolean
+---@field preselect nil|boolean
+---@field sortText nil|string
+---@field filterText nil|string
+---@field insertText nil|string
+---@field insertTextFormat nil|number
+---@field insertTextMode nil|lsp.InsertTextMode
+---@field textEdit nil|lsp.TextEdit|lsp.InsertReplaceEdit
+---@field textEditText nil|string
+---@field additionalTextEdits nil|lsp.TextEdit[]
+---@field commitCharacters nil|string[]
+---@field command nil|lsp.Command
+---@field data nil|any
+
+
+---@class lsp.CompletionList
+---@field isIncomplete boolean
+---@field itemDefaults lsp.ItemDefaults|nil
+---@field items lsp.CompletionItem[]
+
+
+---@param item lsp.CompletionItem
+---@return string
 local function get_documentation(item)
   local docs = item.documentation
   if type(docs) == 'string' then
@@ -65,20 +134,46 @@ local function get_documentation(item)
   return ''
 end
 
+---@param item lsp.CompletionItem
+---@param defaults lsp.ItemDefaults|nil
+local function apply_defaults(item, defaults)
+  if not defaults then
+    return
+  end
+  item.insertTextFormat = item.insertTextFormat or defaults.insertTextFormat
+  item.insertTextMode = item.insertTextMode or defaults.insertTextMode
+  item.data = item.data or defaults.data
+  if defaults.editRange then
+    local textEdit = item.textEdit or {}
+    item.textEdit = textEdit
+    textEdit.newText = textEdit.newText or item.textEditText
+    if defaults.editRange.start then
+      textEdit.range = textEdit.range or defaults.editRange
+    elseif defaults.editRange.insert then
+      textEdit.insert = defaults.editRange.insert
+      textEdit.replace = defaults.editRange.replace
+    end
+  end
+end
 
---- Extract the completion items from a `textDocument/completion` response.
+--- Extract the completion items from a `textDocument/completion` response
+--- and apply defaults
 ---
----@param result table `CompletionItem[] | CompletionList | null`
----@returns (table) `CompletionItem[]`
+---@param result lsp.CompletionItem[]|lsp.CompletionList
+---@returns lsp.CompletionItem[]
 local function get_completion_items(result)
-  if type(result) == 'table' and result.items then
+  if result.items then
+    for _, item in pairs(result.items) do
+      apply_defaults(item, result.itemDefaults)
+    end
     return result.items
   else
-    return result or {}
+    return result
   end
 end
 
 
+---@param result lsp.CompletionItem[]|lsp.CompletionList
 function M.text_document_completion_list_to_complete_items(result, fuzzy)
   local items = get_completion_items(result)
   if #items == 0 then
@@ -596,6 +691,14 @@ function M.capabilities()
           labelDetailsSupport = true,
           resolveSupport = {
             properties = {'edit', 'documentation', 'detail'}
+          },
+        },
+        completionList = {
+          itemDefaults = {
+            "editRange",
+            "insertTextFormat",
+            "insertTextMode",
+            "data"
           },
         }
       }
