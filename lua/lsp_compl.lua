@@ -594,9 +594,9 @@ function M.capabilities()
         completionItem = {
           snippetSupport = has_snippet_support,
           labelDetailsSupport = true,
-        },
-        resolveSupport = {
-          properties = {'edit', 'documentation', 'detail'}
+          resolveSupport = {
+            properties = {'edit', 'documentation', 'detail'}
+          },
         }
       }
     }
