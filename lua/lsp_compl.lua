@@ -330,11 +330,7 @@ function M.trigger_completion()
         vim.list_extend(all_matches, matches)
       end
     end
-    if next(all_matches) then
-      vim.fn.complete(startbyte or col, all_matches)
-    else
-      print('No completion result')
-    end
+    vim.fn.complete(startbyte or col, all_matches)
   end)
   table.insert(completion_ctx.pending_requests, cancel_req)
 end
