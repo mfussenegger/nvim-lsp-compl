@@ -173,81 +173,89 @@ local function get_completion_items(result)
 end
 
 
+---@param item lsp.CompletionItem
+---@param fuzzy boolean
+function M._convert_item(item, fuzzy)
+  local info = get_documentation(item)
+  local kind = lsp.protocol.CompletionItemKind[item.kind] or ''
+  local word
+  if kind == 'Snippet' then
+    word = item.label
+  elseif item.insertTextFormat == SNIPPET then
+    --[[
+    -- eclipse.jdt.ls has
+    --      insertText = "wait",
+    --      label = "wait() : void"
+    --      textEdit = { ... }
+    --
+    -- haskell-ide-engine has
+    --      insertText = "testSuites ${1:Env}"
+    --      label = "testSuites"
+    --
+    -- lua-language-server has
+    --      insertText = "query_definition",
+    --      label = "query_definition(pattern)",
+    --]]
+    if item.textEdit then
+      local text = item.insertText or item.textEdit.newText
+
+      -- Use label instead of text if text has different starting characters.
+      -- label is used as abbr (=displayed), but word is used for filtering
+      -- This is required for things like postfix completion.
+      -- E.g. in lua:
+      --
+      --    local f = {}
+      --    f@|
+      --      ^
+      --      - cursor
+      --
+      --    item.textEdit.newText: table.insert(f, $0)
+      --    label: insert
+      --
+      -- Typing `i` would remove the candidate because newText starts with `t`.
+      word = (fuzzy or vim.startswith(text, item.label)) and text or item.label
+    elseif item.insertText and item.insertText ~= "" then
+      if #item.label < #item.insertText then
+        word = item.label
+      else
+        word = item.insertText
+      end
+    else
+      word = item.label
+    end
+  elseif item.textEdit then
+    word = item.textEdit.newText
+  elseif item.insertText and item.insertText ~= "" then
+    word = item.insertText
+  else
+    word = item.label
+  end
+  return {
+    word = word,
+    abbr = item.label,
+    kind = kind,
+    menu = item.detail or '',
+    info = info,
+    icase = 1,
+    dup = 1,
+    empty = 1,
+    equal = fuzzy and 1 or 0,
+    user_data = item
+  }
+end
+
+
 ---@param result lsp.CompletionItem[]|lsp.CompletionList
 function M.text_document_completion_list_to_complete_items(result, fuzzy)
   local items = get_completion_items(result)
   if #items == 0 then
     return {}
   end
-  local matches = {}
-  for _, item in pairs(items) do
-    local info = get_documentation(item)
-    local kind = lsp.protocol.CompletionItemKind[item.kind] or ''
-    local word
-    if kind == 'Snippet' then
-      word = item.label
-    elseif item.insertTextFormat == SNIPPET then
-      --[[
-      -- eclipse.jdt.ls has
-      --      insertText = "wait",
-      --      label = "wait() : void"
-      --      textEdit = { ... }
-      --
-      -- haskell-ide-engine has
-      --      insertText = "testSuites ${1:Env}"
-      --      label = "testSuites"
-      --
-      -- lua-language-server has
-      --      insertText = "query_definition",
-      --      label = "query_definition(pattern)",
-      --]]
-      if item.textEdit then
-        local text = item.insertText or item.textEdit.newText
 
-        -- Use label instead of text if text has different starting characters.
-        -- label is used as abbr (=displayed), but word is used for filtering
-        -- This is required for things like postfix completion.
-        -- E.g. in lua:
-        --
-        --    local f = {}
-        --    f@|
-        --      ^
-        --      - cursor
-        --
-        --    item.textEdit.newText: table.insert(f, $0)
-        --    label: insert
-        --
-        -- Typing `i` would remove the candidate because newText starts with `t`.
-        word = (fuzzy or vim.startswith(text, item.label)) and text or item.label
-      elseif item.insertText and item.insertText ~= "" then
-        if #item.label < #item.insertText then
-          word = item.label
-        else
-          word = item.insertText
-        end
-      else
-        word = item.label
-      end
-    elseif item.textEdit then
-      word = item.textEdit.newText
-    elseif item.insertText and item.insertText ~= "" then
-      word = item.insertText
-    else
-      word = item.label
-    end
-    table.insert(matches, {
-      word = word,
-      abbr = item.label,
-      kind = kind,
-      menu = item.detail or '',
-      info = info,
-      icase = 1,
-      dup = 1,
-      empty = 1,
-      equal = fuzzy and 1 or 0,
-      user_data = item
-    })
+  local convert = function(item)
+    return M._convert_item(item, fuzzy)
   end
+  local matches = vim.tbl_map(convert, items)
   table.sort(matches, function(a, b)
     return (a.user_data.sortText or a.user_data.label) < (b.user_data.sortText or b.user_data.label)
   end)
