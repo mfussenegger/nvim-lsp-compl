@@ -175,7 +175,7 @@ end
 
 ---@param item lsp.CompletionItem
 ---@param fuzzy boolean
-function M._convert_item(item, fuzzy)
+function M._convert_item(item, fuzzy, offset)
   local info = get_documentation(item)
   local kind = lsp.protocol.CompletionItemKind[item.kind] or ''
   local word
@@ -213,7 +213,7 @@ function M._convert_item(item, fuzzy)
       --    label: insert
       --
       -- Typing `i` would remove the candidate because newText starts with `t`.
-      word = (fuzzy or vim.startswith(text, item.label)) and text or item.label
+      word = (fuzzy or vim.startswith(text:sub(offset + 1), item.label)) and text or item.label
     elseif item.insertText and item.insertText ~= "" then
       if #item.label < #item.insertText then
         word = item.label
@@ -246,14 +246,15 @@ end
 
 
 ---@param result lsp.CompletionItem[]|lsp.CompletionList
-function M.text_document_completion_list_to_complete_items(result, fuzzy)
+---@param fuzzy boolean
+---@param offset number
+function M.text_document_completion_list_to_complete_items(result, fuzzy, offset)
   local items = get_completion_items(result)
   if #items == 0 then
     return {}
   end
-
   local convert = function(item)
-    return M._convert_item(item, fuzzy)
+    return M._convert_item(item, fuzzy, offset)
   end
   local matches = vim.tbl_map(convert, items)
   table.sort(matches, function(a, b)
@@ -426,9 +427,11 @@ function M.trigger_completion()
           startbyte = col
         end
         local opts = (clients[client_id] or {}).opts
+        local offset = startbyte and (col - startbyte) or 0
         local matches = M.text_document_completion_list_to_complete_items(
           result,
-          opts.server_side_fuzzy_completion
+          opts.server_side_fuzzy_completion,
+          math.max(0, offset)
         )
         vim.list_extend(all_matches, matches)
       end

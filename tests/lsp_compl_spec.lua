@@ -181,7 +181,7 @@ describe('item conversion', function()
       insertText = "query_definition",
       label = "query_definition(pattern)",
     }
-    local item = compl._convert_item(lsp_item, false)
+    local item = compl._convert_item(lsp_item, false, 0)
     assert.are.same('query_definition', item.word)
   end)
   it('uses label as word if insertText available but longer than label and format is snippet', function()
@@ -190,7 +190,7 @@ describe('item conversion', function()
       insertText = "testSuites ${1:Env}",
       label = "testSuites",
     }
-    local item = compl._convert_item(lsp_item, false)
+    local item = compl._convert_item(lsp_item, false, 0)
     assert.are.same('testSuites', item.word)
   end)
 
@@ -202,7 +202,20 @@ describe('item conversion', function()
       },
       label = "insert",
     }
-    local item = compl._convert_item(lsp_item, false)
+    local item = compl._convert_item(lsp_item, false, 0)
     assert.are.same('insert', item.word)
+  end)
+
+  it("Uses text if label matches prefix with offset applied", function()
+    -- vscode-json-languageserver includes quotes in the newText, but not in the label
+    local lsp_item = {
+      insertTextFormat = 2,
+      textEdit = {
+        newText = '"arrow_spacing"',
+      },
+      label = "arrow_spacing"
+    }
+    local item = compl._convert_item(lsp_item, false, 1)
+    assert.are.same('"arrow_spacing"', item.word, 1)
   end)
 end)
