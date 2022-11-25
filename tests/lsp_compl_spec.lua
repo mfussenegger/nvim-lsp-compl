@@ -174,3 +174,35 @@ describe('lsp_compl', function()
     assert.are.same({ line = 1, character = 1}, candidate.user_data.textEdit.range.start)
   end)
 end)
+
+describe('item conversion', function()
+  it('uses insertText as word if available and shorter than label', function()
+    local lsp_item = {
+      insertText = "query_definition",
+      label = "query_definition(pattern)",
+    }
+    local item = compl._convert_item(lsp_item, false)
+    assert.are.same('query_definition', item.word)
+  end)
+  it('uses label as word if insertText available but longer than label and format is snippet', function()
+    local lsp_item = {
+      insertTextFormat = 2,
+      insertText = "testSuites ${1:Env}",
+      label = "testSuites",
+    }
+    local item = compl._convert_item(lsp_item, false)
+    assert.are.same('testSuites', item.word)
+  end)
+
+  it("uses label if textEdit.newText doesn't start with label", function()
+    local lsp_item = {
+      insertTextFormat = 2,
+      textEdit = {
+        newText = "table.insert(f, $0)",
+      },
+      label = "insert",
+    }
+    local item = compl._convert_item(lsp_item, false)
+    assert.are.same('insert', item.word)
+  end)
+end)
