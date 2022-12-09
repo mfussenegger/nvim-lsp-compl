@@ -173,6 +173,36 @@ describe('lsp_compl', function()
     assert.are.same('item-property-has-priority', candidate.user_data.data)
     assert.are.same({ line = 1, character = 1}, candidate.user_data.textEdit.range.start)
   end)
+
+  it('executes commands', function()
+    local items = {
+      {
+        label = 'hello',
+        command = {
+          arguments = { "1", "0" },
+          command = "dummy",
+          title = ""
+        }
+      }
+    }
+    local server = new_server({ isIncomplete = false, items = items })
+    local client_id = vim.lsp.start({ name = 'dummy', cmd = server, on_attach = compl.attach })
+    local client = vim.lsp.get_client_by_id(client_id)
+    local called = false
+    client.commands.dummy = function()
+      called = true
+    end
+    compl.trigger_completion()
+    vim.v.completed_item = {
+      user_data = items[1]
+    }
+    api.nvim_exec_autocmds('CompleteDone', {
+      buffer = api.nvim_get_current_buf()
+    })
+    local candidate = capture.matches[1]
+    assert.are.same('hello', candidate.word)
+    assert.are.same(true, called)
+  end)
 end)
 
 describe('item conversion', function()
