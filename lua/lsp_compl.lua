@@ -59,13 +59,6 @@ completion_ctx = {
 ---@field description nil|string
 
 
----@alias lsp.MarkupKind "plaintext"|"markdown"
-
----@class lsp.MarkupContent
----@field kind lsp.MarkupKind
----@field value string
-
-
 ---@alias lsp.InsertTextMode 1|2
 
 ---@class lsp.TextEdit
@@ -78,6 +71,9 @@ completion_ctx = {
 ---@field replace lsp.Range
 
 ---@class lsp.Command
+---@field title string
+---@field command string
+---@field arguments any|nil
 
 ---@class lsp.Position
 ---@field line number
@@ -155,6 +151,7 @@ local function apply_defaults(item, defaults)
     end
   end
 end
+
 
 --- Extract the completion items from a `textDocument/completion` response
 --- and apply defaults
@@ -548,7 +545,7 @@ local function complete_done(client_id)
   end
   local lnum, col = unpack(api.nvim_win_get_cursor(0))
   lnum = lnum - 1
-  local item = completed_item.user_data
+  local item = completed_item.user_data  --[[@as lsp.CompletionItem]]
   local bufnr = api.nvim_get_current_buf()
   local expand_snippet = (
     item.insertTextFormat == SNIPPET
@@ -572,28 +569,38 @@ local function complete_done(client_id)
   local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
   if item.additionalTextEdits then
     lsp.util.apply_text_edits(item.additionalTextEdits, bufnr, offset_encoding)
-    if expand_snippet then
-      apply_snippet(item, suffix)
-    end
   elseif resolve_edits and type(item) == "table" then
-    local ok, request_id = client.request('completionItem/resolve', item, function(err, result)
-      completion_ctx.pending_requests = {}
-      if err then
-        vim.notify(err.message, vim.log.levels.WARN)
-      elseif result and result.additionalTextEdits then
-        lsp.util.apply_text_edits(result.additionalTextEdits, bufnr, offset_encoding)
+    local result, err = client.request_sync('completionItem/resolve', item, 1000, bufnr)
+    err = err or (result.err or {}).message
+    result = result and result.result or nil
+    if err then
+      vim.notify(err, vim.log.levels.WARN)
+    elseif result and result.additionalTextEdits then
+      lsp.util.apply_text_edits(result.additionalTextEdits, bufnr, offset_encoding)
+      if result.command then
+        item.command = result.command
       end
-      if expand_snippet then
-        apply_snippet(item, suffix)
-      end
-    end, bufnr)
-    if ok then
-      table.insert(completion_ctx.pending_requests, function()
-        client.cancel_request(request_id)
-      end)
     end
-  elseif expand_snippet then
+  end
+  if expand_snippet then
     apply_snippet(item, suffix)
+  end
+  local command = item.command
+  if command then
+    local fn = client.commands[command.command] or vim.lsp.commands[command.command]
+    if fn then
+      local context = {
+        bufnr = bufnr,
+        client_id = client_id
+      }
+      fn(command, context)
+    else
+      local params = {
+        command = command.command,
+        arguments = command.arguments,
+      }
+      client.request('workspace/executeCommand', params, function() end, bufnr)
+    end
   end
 end
 
@@ -631,6 +638,28 @@ end
 
 
 function M.attach(client, bufnr, opts)
+  local cmd_trigger_completion = 'editor.action.triggerSuggest'
+  local cmd_trigger_signature = 'editor.action.triggerParameterHints'
+  if not vim.lsp.commands[cmd_trigger_completion] and not client.commands[cmd_trigger_completion] then
+    client.commands[cmd_trigger_completion] = function()
+      local ok, result = pcall(M.trigger_completion)
+      if ok then
+        return vim.NIL
+      else
+        return vim.lsp.rpc_response_error(vim.lsp.protocol.ErrorCodes.InternalError, result)
+      end
+    end
+  end
+  if not vim.lsp.commands[cmd_trigger_signature] and not client.commands[cmd_trigger_signature] then
+    client.commands[cmd_trigger_signature] = function()
+      local ok, result = pcall(signature_help)
+      if ok then
+        return vim.NIL
+      else
+        return vim.lsp.rpc_response_error(vim.lsp.protocol.ErrorCodes.InternalError, result)
+      end
+    end
+  end
   opts = vim.tbl_extend('keep', opts or {}, {
     server_side_fuzzy_completion = false,
     leading_debounce = 25,
