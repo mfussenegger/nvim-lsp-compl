@@ -567,40 +567,45 @@ local function complete_done(client_id)
   end
   local offset_encoding = client.offset_encoding or 'utf-16'
   local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
-  if item.additionalTextEdits then
-    lsp.util.apply_text_edits(item.additionalTextEdits, bufnr, offset_encoding)
-  elseif resolve_edits and type(item) == "table" then
-    local result, err = client.request_sync('completionItem/resolve', item, 1000, bufnr)
-    err = err or (result.err or {}).message
-    result = result and result.result or nil
-    if err then
-      vim.notify(err, vim.log.levels.WARN)
-    elseif result and result.additionalTextEdits then
-      lsp.util.apply_text_edits(result.additionalTextEdits, bufnr, offset_encoding)
-      if result.command then
-        item.command = result.command
+  local apply_snippet_and_command = function()
+    if expand_snippet then
+      apply_snippet(item, suffix)
+    end
+    local command = item.command
+    if command then
+      local fn = client.commands[command.command] or vim.lsp.commands[command.command]
+      if fn then
+        local context = {
+          bufnr = bufnr,
+          client_id = client_id
+        }
+        fn(command, context)
+      else
+        local params = {
+          command = command.command,
+          arguments = command.arguments,
+        }
+        client.request('workspace/executeCommand', params, function() end, bufnr)
       end
     end
   end
-  if expand_snippet then
-    apply_snippet(item, suffix)
-  end
-  local command = item.command
-  if command then
-    local fn = client.commands[command.command] or vim.lsp.commands[command.command]
-    if fn then
-      local context = {
-        bufnr = bufnr,
-        client_id = client_id
-      }
-      fn(command, context)
-    else
-      local params = {
-        command = command.command,
-        arguments = command.arguments,
-      }
-      client.request('workspace/executeCommand', params, function() end, bufnr)
-    end
+  if item.additionalTextEdits then
+    lsp.util.apply_text_edits(item.additionalTextEdits, bufnr, offset_encoding)
+    apply_snippet_and_command()
+  elseif resolve_edits and type(item) == "table" then
+    client.request('completionItem/resolve', item, function(err, result)
+      if err then
+        vim.notify(err.message, vim.log.levels.WARN)
+      elseif result and result.additionalTextEdits then
+        lsp.util.apply_text_edits(result.additionalTextEdits, bufnr, offset_encoding)
+        if result.command then
+          item.command = result.command
+        end
+      end
+      apply_snippet_and_command()
+    end, bufnr)
+  else
+    apply_snippet_and_command()
   end
 end
 
