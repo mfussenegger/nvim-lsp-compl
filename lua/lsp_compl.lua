@@ -244,16 +244,24 @@ end
 
 ---@param result lsp.CompletionItem[]|lsp.CompletionList
 ---@param fuzzy boolean
----@param offset number
-function M.text_document_completion_list_to_complete_items(result, fuzzy, offset)
+---@param offset integer
+---@param prefix string
+function M.text_document_completion_list_to_complete_items(result, fuzzy, offset, prefix)
   local items = get_completion_items(result)
   if #items == 0 then
     return {}
   end
-  local convert = function(item)
-    return M._convert_item(item, fuzzy, offset)
+  local matches = {}
+  for _, item in ipairs(items) do
+    if not fuzzy and item.filterText then
+      if next(vim.fn.matchfuzzy({item.filterText}, prefix)) then
+        local candidate = M._convert_item(item, fuzzy, offset)
+        table.insert(matches, candidate)
+      end
+    else
+      table.insert(matches, M._convert_item(item, fuzzy, offset))
+    end
   end
-  local matches = vim.tbl_map(convert, items)
   table.sort(matches, function(a, b)
     return (a.user_data.sortText or a.user_data.label) < (b.user_data.sortText or b.user_data.label)
   end)
@@ -425,10 +433,12 @@ function M.trigger_completion()
         end
         local opts = (clients[client_id] or {}).opts
         local offset = startbyte and (col - startbyte) or 0
+        local prefix = startbyte and line:sub(startbyte) or line_to_cursor:sub(col)
         local matches = M.text_document_completion_list_to_complete_items(
           result,
           opts.server_side_fuzzy_completion,
-          math.max(0, offset)
+          math.max(0, offset),
+          prefix
         )
         vim.list_extend(all_matches, matches)
       end
