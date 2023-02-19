@@ -581,11 +581,20 @@ local function complete_done(client_id)
         }
         fn(command, context)
       else
-        local params = {
-          command = command.command,
-          arguments = command.arguments,
-        }
-        client.request('workspace/executeCommand', params, function() end, bufnr)
+        local command_provider = client.server_capabilities.executeCommandProvider or {}
+        local server_commands = command_provider.commands or {}
+        if vim.tbl_contains(server_commands, command.command) then
+          local params = {
+            command = command.command,
+            arguments = command.arguments,
+          }
+          client.request('workspace/executeCommand', params, function() end, bufnr)
+        else
+          vim.notify(
+            'Command not supported on client or server: ' .. command.command,
+            vim.log.levels.WARN
+          )
+        end
       end
     end
   end
@@ -735,7 +744,7 @@ function M.capabilities()
           snippetSupport = has_snippet_support,
           labelDetailsSupport = true,
           resolveSupport = {
-            properties = {'edit', 'documentation', 'detail'}
+            properties = {'edit', 'documentation', 'detail', 'additionalTextEdits'}
           },
         },
         completionList = {
