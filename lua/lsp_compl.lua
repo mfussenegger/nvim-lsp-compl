@@ -222,6 +222,7 @@ function M._convert_item(item, fuzzy, offset)
     end
   elseif item.textEdit then
     word = item.textEdit.newText
+    word = word:match("^(%S*)") or word
   elseif item.insertText and item.insertText ~= "" then
     word = item.insertText
   else

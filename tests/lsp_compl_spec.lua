@@ -248,4 +248,15 @@ describe('item conversion', function()
     local item = compl._convert_item(lsp_item, false, 1)
     assert.are.same('"arrow_spacing"', item.word, 1)
   end)
+
+  it("Strips trailing newline and tab from textEdit.newText", function()
+    local lsp_item = {
+      textEdit = {
+        newText = 'ansible.builtin.cpm_serial_port_info:\n\t',
+      },
+      label = "ansible.builtin.cpm_serial_port_info"
+    }
+    local item = compl._convert_item(lsp_item, false, 1)
+    assert.are.same("ansible.builtin.cpm_serial_port_info:", item.word)
+  end)
 end)
