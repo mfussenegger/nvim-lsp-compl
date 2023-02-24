@@ -474,7 +474,7 @@ local function insert_char_pre(client_id)
       if debounce_ms == 0 then
         vim.schedule(M.trigger_completion)
       else
-        timer = vim.loop.new_timer()
+        timer = assert(vim.loop.new_timer(), "Must be able to create timer")
         timer:start(debounce_ms, 0, vim.schedule_wrap(M.trigger_completion))
       end
     end
@@ -489,7 +489,7 @@ local function insert_char_pre(client_id)
   for _, entry in pairs(triggers) do
     local chars, fn = unpack(entry)
     if vim.tbl_contains(chars, char) then
-      timer = vim.loop.new_timer()
+      timer = assert(vim.loop.new_timer(), "Must be able to create timer")
       timer:start(opts.leading_debounce, 0, function()
         reset_timer()
         vim.schedule(fn)
@@ -512,7 +512,7 @@ local function text_changed_i()
   end
   local current_cursor = api.nvim_win_get_cursor(0)
   if current_cursor[1] == cursor[1] and current_cursor[2] <= cursor[2] then
-    timer = vim.loop.new_timer()
+    timer = assert(vim.loop.new_timer(), "Must be able to create timer")
     timer:start(150, 0, vim.schedule_wrap(M.trigger_completion))
   elseif current_cursor[1] ~= cursor[1] then
     completion_ctx.cursor = nil
