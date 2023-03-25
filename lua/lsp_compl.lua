@@ -142,7 +142,7 @@ local function apply_defaults(item, defaults)
   if defaults.editRange then
     local textEdit = item.textEdit or {}
     item.textEdit = textEdit
-    textEdit.newText = textEdit.newText or item.textEditText
+    textEdit.newText = textEdit.newText or item.textEditText or item.insertText
     if defaults.editRange.start then
       textEdit.range = textEdit.range or defaults.editRange
     elseif defaults.editRange.insert then
@@ -726,7 +726,11 @@ function M.attach(client, bufnr, opts)
     api.nvim_buf_attach(bufnr, false, {
       on_detach = function(_, b)
         triggers_by_buf[b] = nil
-      end
+      end,
+      on_reload = function(_, b)
+        M.detach(client.id, b)
+        M.attach(client, b, opts)
+      end,
     })
   end
   local signature_triggers = vim.tbl_get(client.server_capabilities, 'signatureHelpProvider', 'triggerCharacters')
