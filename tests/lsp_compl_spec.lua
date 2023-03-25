@@ -174,6 +174,34 @@ describe('lsp_compl', function()
     assert.are.same({ line = 1, character = 1}, candidate.user_data.textEdit.range.start)
   end)
 
+  it("uses insertText as textEdit.newText if there are editRange defaults but no textEditText", function()
+    local server = new_server({
+      isIncomplete = false,
+      itemDefaults = {
+        editRange = {
+          start = { line = 1, character = 1 },
+          ['end'] = { line = 1, character = 4 },
+        },
+        insertTextFormat = 2,
+        data = 'foobar',
+      },
+      items = {
+        {
+          insertText = "the-insertText",
+          label = 'hello',
+          data = 'item-property-has-priority',
+        }
+      }
+    })
+    vim.lsp.start({ name = 'server', cmd = server, on_attach = compl.attach })
+    api.nvim_buf_set_lines(buf, 0, -1, true, {'a'})
+    api.nvim_win_set_cursor(win, { 1, 1 })
+    compl.trigger_completion()
+    local candidate = capture.matches[1]
+    local item = candidate.user_data
+    assert.are.same("the-insertText", item.textEdit.newText)
+  end)
+
   it('executes commands', function()
     local items = {
       {
