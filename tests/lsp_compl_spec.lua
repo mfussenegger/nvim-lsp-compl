@@ -60,16 +60,24 @@ describe('lsp_compl', function()
   local buf = api.nvim_create_buf(false, true)
   local win = api.nvim_get_current_win()
   local capture = {}
+
+  ---@diagnostic disable-next-line: duplicate-set-field
   vim.fn.complete = function(col, matches)
     capture.col = col
     capture.matches = matches
   end
+  ---@diagnostic disable-next-line: duplicate-set-field
   api.nvim_get_mode = function()
     return {
       mode = 'i'
     }
   end
   api.nvim_win_set_buf(win, buf)
+  api.nvim_create_autocmd("LspDetach", {
+    callback = function(args)
+      compl.detach(args.data.client_id, args.buf)
+    end,
+  })
 
   before_each(function()
     capture = {}
@@ -79,6 +87,7 @@ describe('lsp_compl', function()
   after_each(function()
     vim.lsp.stop_client(vim.lsp.get_active_clients())
     wait(function() return vim.tbl_count(vim.lsp.get_active_clients()) == 0 end, 'clients must stop')
+    assert.are.same({}, vim.lsp.get_active_clients())
   end)
 
   it('fetches completions and shows them using complete on trigger_completion', function()
@@ -108,7 +117,10 @@ describe('lsp_compl', function()
         kind = '',
         menu = '',
         user_data = {
-          label = 'hello',
+          client_id = 1,
+          item = {
+            label = 'hello',
+          }
         },
         word = 'hello'
       }
@@ -138,7 +150,7 @@ describe('lsp_compl', function()
     api.nvim_buf_set_lines(buf, 0, -1, true, {'a'})
     api.nvim_win_set_cursor(win, { 1, 1 })
     compl.trigger_completion()
-    wait(function() return capture.col ~= nil end)
+    wait(function() return capture.col ~= nil end, "must have a capture: " .. vim.inspect(capture))
     assert.are.same(2, #capture.matches)
     assert.are.same('hello', capture.matches[1].word)
     assert.are.same('hallo', capture.matches[2].word)
@@ -169,9 +181,9 @@ describe('lsp_compl', function()
     compl.trigger_completion()
     local candidate = capture.matches[1]
     assert.are.same('hello', candidate.word)
-    assert.are.same(2, candidate.user_data.insertTextFormat)
-    assert.are.same('item-property-has-priority', candidate.user_data.data)
-    assert.are.same({ line = 1, character = 1}, candidate.user_data.textEdit.range.start)
+    assert.are.same(2, candidate.user_data.item.insertTextFormat)
+    assert.are.same('item-property-has-priority', candidate.user_data.item.data)
+    assert.are.same({ line = 1, character = 1}, candidate.user_data.item.textEdit.range.start)
   end)
 
   it("uses insertText as textEdit.newText if there are editRange defaults but no textEditText", function()
@@ -198,7 +210,7 @@ describe('lsp_compl', function()
     api.nvim_win_set_cursor(win, { 1, 1 })
     compl.trigger_completion()
     local candidate = capture.matches[1]
-    local item = candidate.user_data
+    local item = candidate.user_data.item
     assert.are.same("the-insertText", item.textEdit.newText)
   end)
 
@@ -215,6 +227,7 @@ describe('lsp_compl', function()
     }
     local server = new_server({ isIncomplete = false, items = items })
     local client_id = vim.lsp.start({ name = 'dummy', cmd = server, on_attach = compl.attach })
+    assert(client_id)
     local client = vim.lsp.get_client_by_id(client_id)
     local called = false
     client.commands.dummy = function()
@@ -222,7 +235,10 @@ describe('lsp_compl', function()
     end
     compl.trigger_completion()
     vim.v.completed_item = {
-      user_data = items[1]
+      user_data = {
+        item = items[1],
+        client_id = client_id
+      }
     }
     api.nvim_exec_autocmds('CompleteDone', {
       buffer = api.nvim_get_current_buf()
@@ -239,7 +255,7 @@ describe('item conversion', function()
       insertText = "query_definition",
       label = "query_definition(pattern)",
     }
-    local item = compl._convert_item(lsp_item, false, 0)
+    local item = compl._convert_item(1, lsp_item, false, 0)
     assert.are.same('query_definition', item.word)
   end)
   it('uses label as word if insertText available but longer than label and format is snippet', function()
@@ -248,7 +264,7 @@ describe('item conversion', function()
       insertText = "testSuites ${1:Env}",
       label = "testSuites",
     }
-    local item = compl._convert_item(lsp_item, false, 0)
+    local item = compl._convert_item(1, lsp_item, false, 0)
     assert.are.same('testSuites', item.word)
   end)
 
@@ -260,7 +276,7 @@ describe('item conversion', function()
       },
       label = "insert",
     }
-    local item = compl._convert_item(lsp_item, false, 0)
+    local item = compl._convert_item(1, lsp_item, false, 0)
     assert.are.same('insert', item.word)
   end)
 
@@ -273,7 +289,7 @@ describe('item conversion', function()
       },
       label = "arrow_spacing"
     }
-    local item = compl._convert_item(lsp_item, false, 1)
+    local item = compl._convert_item(1, lsp_item, false, 1)
     assert.are.same('"arrow_spacing"', item.word, 1)
   end)
 
@@ -284,7 +300,7 @@ describe('item conversion', function()
       },
       label = "ansible.builtin.cpm_serial_port_info"
     }
-    local item = compl._convert_item(lsp_item, false, 1)
+    local item = compl._convert_item(1, lsp_item, false, 1)
     assert.are.same("ansible.builtin.cpm_serial_port_info:", item.word)
   end)
 end)

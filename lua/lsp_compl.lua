@@ -1,11 +1,16 @@
 local api = vim.api
 local lsp = vim.lsp
-local timer = nil
-local triggers_by_buf = {}
 local rtt_ms = 50
 local ns_to_ms = 0.000001
 local M = {}
 local SNIPPET = 2
+
+---@type nil|uv_timer_t
+local completion_timer = nil
+
+---@type nil|uv_timer_t
+local signature_timer = nil
+
 
 if vim.fn.has('nvim-0.7') ~= 1 then
   vim.notify(
@@ -17,18 +22,28 @@ if vim.fn.has('nvim-0.7') ~= 1 then
 end
 
 
+---@class lsp_compl.handle
+---@field clients table<integer, lsp_compl.client>
+---@field has_fuzzy boolean
+---@field signature_triggers table<string, lsp_compl.client[]>
+---@field completion_triggers table<string, lsp_compl.client[]>
+---@field leading_debounce number
+---@field subsequent_debounce? number
+
+---@type table<integer, lsp_compl.handle>
+local buf_handles = {}
+
+---@class lsp_compl.client
+---@field lspclient lsp.Client
+---@field opts lsp_compl.client_opts
+
 --- @class lsp_compl.client_opts
 --- @field server_side_fuzzy_completion boolean
---- @field leading_debounce number
---- @field subsequent_debounce number|nil
 --- @field trigger_on_delete boolean
+--- @field leading_debounce number
+--- @field subsequent_debounce? number
 
---- @class lsp_compl.client
---- @field num_attached number
---- @field opts lsp_compl.client_opts
 
---- @type table<number, lsp_compl.client>
-local clients = {}
 local completion_ctx
 completion_ctx = {
   expand_snippet = false,
@@ -74,14 +89,6 @@ completion_ctx = {
 ---@field title string
 ---@field command string
 ---@field arguments any|nil
-
----@class lsp.Position
----@field line number
----@field character number
-
----@class lsp.Range
----@field start lsp.Position
----@field end lsp.Position
 
 ---@class lsp.ItemDefaults
 ---@field editRange nil|lsp.Range|{insert: lsp.Range, replace: lsp.Range}
@@ -170,9 +177,10 @@ local function get_completion_items(result)
 end
 
 
+---@param client_id integer
 ---@param item lsp.CompletionItem
 ---@param fuzzy boolean
-function M._convert_item(item, fuzzy, offset)
+function M._convert_item(client_id, item, fuzzy, offset)
   local info = get_documentation(item)
   local kind = lsp.protocol.CompletionItemKind[item.kind] or ''
   local word
@@ -238,16 +246,20 @@ function M._convert_item(item, fuzzy, offset)
     dup = 1,
     empty = 1,
     equal = fuzzy and 1 or 0,
-    user_data = item
+    user_data = {
+      client_id = client_id,
+      item = item
+    }
   }
 end
 
 
+---@param client_id integer
 ---@param result lsp.CompletionItem[]|lsp.CompletionList
 ---@param fuzzy boolean
 ---@param offset integer
 ---@param prefix string
-function M.text_document_completion_list_to_complete_items(result, fuzzy, offset, prefix)
+function M.text_document_completion_list_to_complete_items(client_id, result, fuzzy, offset, prefix)
   local items = get_completion_items(result)
   if #items == 0 then
     return {}
@@ -256,26 +268,29 @@ function M.text_document_completion_list_to_complete_items(result, fuzzy, offset
   for _, item in ipairs(items) do
     if not fuzzy and item.filterText then
       if next(vim.fn.matchfuzzy({item.filterText}, prefix)) then
-        local candidate = M._convert_item(item, fuzzy, offset)
+        local candidate = M._convert_item(client_id, item, fuzzy, offset)
         table.insert(matches, candidate)
       end
     else
-      table.insert(matches, M._convert_item(item, fuzzy, offset))
+      table.insert(matches, M._convert_item(client_id, item, fuzzy, offset))
     end
   end
   table.sort(matches, function(a, b)
-    return (a.user_data.sortText or a.user_data.label) < (b.user_data.sortText or b.user_data.label)
+    local txta = a.user_data.item.sortText or a.user_data.item.label
+    local txtb = b.user_data.item.sortText or b.user_data.item.label
+    return txta < txtb
   end)
   return matches
 end
 
 
-local function reset_timer()
+---@param timer? uv_timer_t
+local function reset_timer(timer)
   if timer then
     timer:stop()
     timer:close()
-    timer = nil
   end
+  return nil
 end
 
 
@@ -357,28 +372,28 @@ end
 local compute_new_average = exp_avg(10, 10)
 
 
-local function request(opts, callback)
-  local attached_clients = {}
-  for client_id, _ in pairs(clients) do
-    local client = vim.lsp.get_client_by_id(client_id)
-    if client and lsp.buf_is_attached(opts.bufnr, client.id) then
-      table.insert(attached_clients, client)
-    end
-  end
+---@param clients table<integer, lsp_compl.client>
+---@param bufnr integer
+---@param win integer
+---@param callback fun(responses: table)
+local function request(clients, bufnr, win, callback)
   local results = {}
   local request_ids = {}
-  local remaining_results = #attached_clients
-  for _, client in pairs(attached_clients) do
-    local params = lsp.util.make_position_params(opts.win, client.offset_encoding)
-    local ok, request_id = client.request('textDocument/completion', params, function(err, result)
-      results[client.id] = { err = err, result = result }
+  local remaining_results = vim.tbl_count(clients)
+  for client_id, client in pairs(clients) do
+    local lspclient = client.lspclient
+    local params = lsp.util.make_position_params(win, lspclient.offset_encoding)
+
+    ---@diagnostic disable-next-line: invisible
+    local ok, request_id = lspclient.request('textDocument/completion', params, function(err, result)
+      results[client_id] = { err = err, result = result }
       remaining_results = remaining_results - 1
       if remaining_results == 0 then
         callback(results)
       end
-    end)
+    end, bufnr)
     if ok then
-      request_ids[client.id] = request_id
+      request_ids[client_id] = request_id
     end
   end
   return function()
@@ -393,7 +408,7 @@ end
 
 
 function M.trigger_completion()
-  reset_timer()
+  completion_timer = reset_timer(completion_timer)
   completion_ctx.cancel_pending()
   local win = api.nvim_get_current_win()
   local bufnr = api.nvim_get_current_buf()
@@ -403,8 +418,9 @@ function M.trigger_completion()
   local col = vim.fn.match(line_to_cursor, '\\k*$') + 1
   local start = vim.loop.hrtime()
   completion_ctx.last_request = start
+  local clients = (buf_handles[bufnr] or {}).clients or {}
 
-  local cancel_req = request({ bufnr = bufnr, win = win }, function(responses)
+  local cancel_req = request(clients, bufnr, win, function(responses)
     local end_ = vim.loop.hrtime()
     rtt_ms = compute_new_average((end_ - start) * ns_to_ms)
     completion_ctx.pending_requests = {}
@@ -436,6 +452,7 @@ function M.trigger_completion()
         local offset = startbyte and (col - startbyte) or 0
         local prefix = startbyte and line:sub(startbyte) or line_to_cursor:sub(col)
         local matches = M.text_document_completion_list_to_complete_items(
+          client_id,
           result,
           opts.server_side_fuzzy_completion,
           math.max(0, offset),
@@ -460,42 +477,51 @@ local function next_debounce(subsequent_debounce)
 end
 
 
-local function insert_char_pre(client_id)
-  local opts = clients[client_id].opts
+local function signature_help()
+  signature_timer = reset_timer(signature_timer)
+  local params = lsp.util.make_position_params()
+  lsp.buf_request(0, 'textDocument/signatureHelp', params, function(err, result, ctx, conf)
+    conf = conf and vim.deepcopy(conf) or {}
+    conf.focusable = false
+    vim.lsp.handlers['textDocument/signatureHelp'](err, result, ctx, conf)
+  end)
+end
+
+
+---@param handle lsp_compl.handle
+local function insert_char_pre(handle)
   local pumvisible = tonumber(vim.fn.pumvisible()) == 1
   if pumvisible then
-    if completion_ctx.isIncomplete or opts.server_side_fuzzy_completion then
-      reset_timer()
-      -- Calling vim.fn.complete will trigger `CompleteDone` for the active completion window;
+    if completion_ctx.isIncomplete or handle.has_fuzzy then
+      completion_timer = reset_timer(completion_timer)
+      -- Calling vim.fn.complete while pumvisible will trigger `CompleteDone` for the active completion window;
       -- → suppress it to avoid resetting the completion_ctx
       completion_ctx.suppress_completeDone = true
 
-      local debounce_ms = next_debounce(opts.subsequent_debounce)
+      local debounce_ms = next_debounce(handle.subsequent_debounce)
       if debounce_ms == 0 then
         vim.schedule(M.trigger_completion)
       else
-        timer = assert(vim.loop.new_timer(), "Must be able to create timer")
-        timer:start(debounce_ms, 0, vim.schedule_wrap(M.trigger_completion))
+        completion_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
+        completion_timer:start(debounce_ms, 0, vim.schedule_wrap(M.trigger_completion))
       end
     end
     return
   end
-
-  if timer then
-    return
-  end
   local char = api.nvim_get_vvar('char')
-  local triggers = triggers_by_buf[api.nvim_get_current_buf()] or {}
-  for _, entry in pairs(triggers) do
-    local chars, fn = unpack(entry)
-    if vim.tbl_contains(chars, char) then
-      timer = assert(vim.loop.new_timer(), "Must be able to create timer")
-      timer:start(opts.leading_debounce, 0, function()
-        reset_timer()
-        vim.schedule(fn)
-      end)
-      return
-    end
+  if not completion_timer and handle.completion_triggers[char] ~= nil then
+    completion_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
+    completion_timer:start(handle.leading_debounce, 0, function()
+      completion_timer = reset_timer(completion_timer)
+      vim.schedule(M.trigger_completion)
+    end)
+  end
+  if not signature_timer and handle.signature_triggers[char] ~= nil then
+    signature_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
+    signature_timer:start(handle.leading_debounce, 0, function()
+      signature_timer = reset_timer(signature_timer)
+      vim.schedule(signature_help)
+    end)
   end
 end
 
@@ -507,13 +533,13 @@ end
 
 local function text_changed_i()
   local cursor = completion_ctx.cursor
-  if not cursor or timer then
+  if not cursor or completion_timer then
     return
   end
   local current_cursor = api.nvim_win_get_cursor(0)
   if current_cursor[1] == cursor[1] and current_cursor[2] <= cursor[2] then
-    timer = assert(vim.loop.new_timer(), "Must be able to create timer")
-    timer:start(150, 0, vim.schedule_wrap(M.trigger_completion))
+    completion_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
+    completion_timer:start(150, 0, vim.schedule_wrap(M.trigger_completion))
   elseif current_cursor[1] ~= cursor[1] then
     completion_ctx.cursor = nil
   end
@@ -521,13 +547,18 @@ end
 
 
 local function insert_leave()
-  reset_timer()
+  signature_timer = reset_timer(signature_timer)
+  completion_timer = reset_timer(completion_timer)
   completion_ctx.cursor = nil
   completion_ctx.reset()
 end
 
 
-M.expand_snippet = function(snippet)
+--- Expands a snippet.
+--- Uses luasnip or vsnip by default. Override to use a different snippet engine.
+---
+---@param snippet string
+function M.expand_snippet(snippet)
   local ok, luasnip = pcall(require, 'luasnip')
   local fn = ok and luasnip.lsp_expand or vim.fn['vsnip#anonymous']
   fn(snippet)
@@ -535,7 +566,6 @@ end
 
 
 local function apply_snippet(item, suffix)
-  -- TODO: move cursor back to end of new text?
   if item.textEdit then
     M.expand_snippet(item.textEdit.newText .. suffix)
   elseif item.insertText then
@@ -544,7 +574,7 @@ local function apply_snippet(item, suffix)
 end
 
 
-local function complete_done(client_id)
+local function complete_done()
   if completion_ctx.suppress_completeDone then
     completion_ctx.suppress_completeDone = false
     return
@@ -556,7 +586,12 @@ local function complete_done(client_id)
   end
   local lnum, col = unpack(api.nvim_win_get_cursor(0))
   lnum = lnum - 1
-  local item = completed_item.user_data  --[[@as lsp.CompletionItem]]
+  local user_data = completed_item.user_data
+  local item = user_data.item  --[[@as lsp.CompletionItem]]
+  local client_id = user_data.client_id
+  if not item or not client_id then
+    return
+  end
   local bufnr = api.nvim_get_current_buf()
   local expand_snippet = (
     item.insertTextFormat == SNIPPET
@@ -641,31 +676,32 @@ end
 
 
 function M.detach(client_id, bufnr)
-  local c = clients[client_id]
-  if not c then
+  local handle = buf_handles[bufnr]
+  if not handle then
     return
   end
-  local group = string.format('lsp_compl_%d_%d', client_id, bufnr)
-  api.nvim_del_augroup_by_name(group)
-  c.num_attached = c.num_attached - 1
-  if (c.num_attached == 0) then
-    clients[client_id] = nil
+  handle.clients[client_id] = nil
+  if not next(handle.clients) then
+    buf_handles[bufnr] = nil
+    local group = string.format('lsp_compl_%d', bufnr)
+    api.nvim_del_augroup_by_name(group)
+  else
+    ---@param c lsp_compl.client
+    local function is_other_client(c)
+      return c.lspclient.id ~= client_id
+    end
+    for k, clients in pairs(handle.signature_triggers) do
+      handle.signature_triggers[k] = vim.tbl_filter(is_other_client, clients)
+    end
+    for k, clients in pairs(handle.completion_triggers) do
+      handle.completion_triggers[k] = vim.tbl_filter(is_other_client, clients)
+    end
   end
 end
 
 
-local function signature_help()
-  reset_timer()
-  local params = lsp.util.make_position_params()
-  lsp.buf_request(0, 'textDocument/signatureHelp', params, function(err, result, ctx, config)
-    local conf = config and vim.deepcopy(config) or {}
-    conf.focusable = false
-    vim.lsp.handlers['textDocument/signatureHelp'](err, result, ctx, conf)
-  end)
-end
-
-
-function M.attach(client, bufnr, opts)
+---@param client lsp.Client
+local function init_commands(client)
   local cmd_trigger_completion = 'editor.action.triggerSuggest'
   local cmd_trigger_signature = 'editor.action.triggerParameterHints'
   if not vim.lsp.commands[cmd_trigger_completion] and not client.commands[cmd_trigger_completion] then
@@ -688,60 +724,103 @@ function M.attach(client, bufnr, opts)
       end
     end
   end
+end
+
+
+---@param client lsp.Client
+---@param bufnr integer
+---@param opts? lsp_compl.client_opts
+function M.attach(client, bufnr, opts)
+  ---@type lsp_compl.client_opts
   opts = vim.tbl_extend('keep', opts or {}, {
     server_side_fuzzy_completion = false,
-    leading_debounce = 25,
-    subsequent_debounce = nil,
     trigger_on_delete = false,
   })
-  local client_settings = clients[client.id] or {
-    num_attached = 0
-  }
-  clients[client.id] = client_settings
-  client_settings.num_attached = client_settings.num_attached + 1
-  client_settings.opts = opts
-  local group = string.format('lsp_compl_%d_%d', client.id, bufnr)
-  api.nvim_create_augroup(group, { clear = true })
-  local create_autocmd = api.nvim_create_autocmd
-  create_autocmd('InsertCharPre', {
-    group = group,
-    buffer = bufnr,
-    callback = function() insert_char_pre(client.id) end,
-  })
-  if opts.trigger_on_delete then
-    create_autocmd('TextChangedP', { group = group, buffer = bufnr, callback = text_changed_p })
-    create_autocmd('TextChangedI', { group = group, buffer = bufnr, callback = text_changed_i })
-  end
-  create_autocmd('InsertLeave', { group = group, buffer = bufnr, callback = insert_leave, })
-  create_autocmd('CompleteDone', {
-    group = group,
-    buffer = bufnr,
-    callback = function() complete_done(client.id) end,
-  })
 
-  local triggers = triggers_by_buf[bufnr]
-  if not triggers then
-    triggers = {}
-    triggers_by_buf[bufnr] = triggers
+  local handle = buf_handles[bufnr]
+  if not handle then
+    handle = {
+      clients = {},
+      signature_triggers = {},
+      completion_triggers = {},
+      has_fuzzy = false,
+      leading_debounce = opts.leading_debounce or 25,
+      subsequent_debounce = opts.subsequent_debounce
+    }
+    buf_handles[bufnr] = handle
     api.nvim_buf_attach(bufnr, false, {
       on_detach = function(_, b)
-        triggers_by_buf[b] = nil
+        buf_handles[b] = nil
       end,
       on_reload = function(_, b)
-        M.detach(client.id, b)
         M.attach(client, b, opts)
-      end,
+      end
     })
+    local group = string.format('lsp_compl_%d', bufnr)
+    api.nvim_create_augroup(group, { clear = true })
+    local create_autocmd = api.nvim_create_autocmd
+    create_autocmd('InsertCharPre', {
+      group = group,
+      buffer = bufnr,
+      callback = function() insert_char_pre(handle) end,
+    })
+    if opts.trigger_on_delete then
+      create_autocmd('TextChangedP', { group = group, buffer = bufnr, callback = text_changed_p })
+      create_autocmd('TextChangedI', { group = group, buffer = bufnr, callback = text_changed_i })
+    end
+    create_autocmd('InsertLeave', { group = group, buffer = bufnr, callback = insert_leave, })
+    create_autocmd('CompleteDone', { group = group, buffer = bufnr, callback = complete_done })
   end
-  local signature_triggers = vim.tbl_get(client.server_capabilities, 'signatureHelpProvider', 'triggerCharacters')
-  if signature_triggers and #signature_triggers > 0 then
-    table.insert(triggers, { signature_triggers, signature_help })
+
+  handle.has_fuzzy = handle.has_fuzzy or opts.server_side_fuzzy_completion
+  handle.leading_debounce = math.max(handle.leading_debounce, 0)
+  if handle.subsequent_debounce and opts.subsequent_debounce then
+    handle.subsequent_debounce = math.max(handle.subsequent_debounce, opts.subsequent_debounce)
   end
-  local completionProvider = client.server_capabilities.completionProvider or {}
-  local completion_triggers = completionProvider.triggerCharacters
-  if completion_triggers and #completion_triggers > 0 then
-    table.insert(triggers, { completion_triggers, M.trigger_completion })
+
+  local compl_client = handle.clients[client.id]
+  if not compl_client then
+    init_commands(client)
+    compl_client = {
+      lspclient = client,
+      opts = opts
+    }
+    handle.clients[client.id] = compl_client
   end
+
+  ---@param map table<string, lsp_compl.client>
+  ---@param triggers string[]
+  local function add_client(map, triggers)
+    for _, char in ipairs(triggers) do
+      local clients = map[char]
+      local exists = false
+      if clients then
+        for _, c in pairs(clients) do
+          if c.lspclient.id == client.id then
+            exists = true
+            break
+          end
+        end
+      else
+        clients = {}
+        map[char] = clients
+      end
+      if not exists then
+        table.insert(clients, compl_client)
+      end
+    end
+  end
+
+  add_client(handle.signature_triggers, vim.tbl_get(
+    client.server_capabilities,
+    'signatureHelpProvider',
+    'triggerCharacters'
+  ))
+  add_client(handle.completion_triggers, vim.tbl_get(
+    client.server_capabilities,
+    "completionProvider",
+    "triggerCharacters"
+  ))
 end
 
 
@@ -753,6 +832,7 @@ end
 ---     vim.lsp.protocol.make_client_capabilities(),
 ---     require('lsp_compl').capabilities()
 ---   )
+---@return table
 function M.capabilities()
   local has_snippet_support = pcall(require, 'luasnip') or vim.fn['vsnip#anonymous'] ~= nil
   return {
