@@ -789,9 +789,9 @@ function M.attach(client, bufnr, opts)
   end
 
   ---@param map table<string, lsp_compl.client>
-  ---@param triggers string[]
+  ---@param triggers? string[]
   local function add_client(map, triggers)
-    for _, char in ipairs(triggers) do
+    for _, char in ipairs(triggers or {}) do
       local clients = map[char]
       local exists = false
       if clients then
