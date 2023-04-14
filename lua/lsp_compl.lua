@@ -590,6 +590,7 @@ local function complete_done()
   local item = user_data.item  --[[@as lsp.CompletionItem]]
   local client_id = user_data.client_id
   if not item or not client_id then
+    completion_ctx.reset()
     return
   end
   local bufnr = api.nvim_get_current_buf()
@@ -598,14 +599,6 @@ local function complete_done()
     and completion_ctx.expand_snippet
     and (item.textEdit ~= nil or item.insertText ~= nil)
   )
-  local suffix = nil
-  if expand_snippet then
-    -- Remove the already inserted word
-    local start_char = col - #completed_item.word
-    local line = api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, true)[1]
-    suffix = line:sub(col + 1)
-    api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
-  end
   completion_ctx.reset()
   local client = vim.lsp.get_client_by_id(client_id)
   if not client then
@@ -615,6 +608,11 @@ local function complete_done()
   local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
   local apply_snippet_and_command = function()
     if expand_snippet then
+      -- Remove the already inserted word
+      local start_char = col - #completed_item.word
+      local line = api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, true)[1]
+      local suffix = line:sub(col + 1)
+      api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
       apply_snippet(item, suffix)
     end
     local command = item.command
@@ -648,7 +646,11 @@ local function complete_done()
     lsp.util.apply_text_edits(item.additionalTextEdits, bufnr, offset_encoding)
     apply_snippet_and_command()
   elseif resolve_edits and type(item) == "table" then
+    local changedtick = vim.b[bufnr].changedtick
     client.request('completionItem/resolve', item, function(err, result)
+      if changedtick ~= vim.b[bufnr].changedtick then
+        return
+      end
       if err then
         vim.notify(err.message, vim.log.levels.WARN)
       elseif result and result.additionalTextEdits then
