@@ -606,13 +606,23 @@ local function complete_done()
   end
   local offset_encoding = client.offset_encoding or 'utf-16'
   local resolve_edits = (client.server_capabilities.completionProvider or {}).resolveProvider
-  local apply_snippet_and_command = function()
+
+  ---@return string? suffix
+  local function clear_word()
+    if not expand_snippet then
+      return nil
+    end
+    -- Remove the already inserted word
+    local start_char = col - #completed_item.word
+    local line = api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, true)[1]
+    api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
+    local suffix = line:sub(col + 1)
+    return suffix
+  end
+
+  ---@param suffix string?
+  local function apply_snippet_and_command(suffix)
     if expand_snippet then
-      -- Remove the already inserted word
-      local start_char = col - #completed_item.word
-      local line = api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, true)[1]
-      local suffix = line:sub(col + 1)
-      api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
       apply_snippet(item, suffix)
     end
     local command = item.command
@@ -643,14 +653,16 @@ local function complete_done()
     end
   end
   if item.additionalTextEdits then
+    local suffix = clear_word()
     lsp.util.apply_text_edits(item.additionalTextEdits, bufnr, offset_encoding)
-    apply_snippet_and_command()
+    apply_snippet_and_command(suffix)
   elseif resolve_edits and type(item) == "table" then
     local changedtick = vim.b[bufnr].changedtick
     client.request('completionItem/resolve', item, function(err, result)
       if changedtick ~= vim.b[bufnr].changedtick then
         return
       end
+      local suffix = clear_word()
       if err then
         vim.notify(err.message, vim.log.levels.WARN)
       elseif result and result.additionalTextEdits then
@@ -659,10 +671,11 @@ local function complete_done()
           item.command = result.command
         end
       end
-      apply_snippet_and_command()
+      apply_snippet_and_command(suffix)
     end, bufnr)
   else
-    apply_snippet_and_command()
+    local suffix = clear_word()
+    apply_snippet_and_command(suffix)
   end
 end
 
