@@ -439,6 +439,22 @@ local function signature_help()
 end
 
 
+local function trigger(handle, char)
+  if not completion_timer and handle.completion_triggers[char] ~= nil then
+    completion_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
+    completion_timer:start(handle.leading_debounce, 0, function()
+      completion_timer = reset_timer(completion_timer)
+      vim.schedule(M.trigger_completion)
+    end)
+  end
+  if not signature_timer and handle.signature_triggers[char] ~= nil then
+    signature_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
+    signature_timer:start(handle.leading_debounce, 0, function()
+      signature_timer = reset_timer(signature_timer)
+      vim.schedule(signature_help)
+    end)
+  end
+end
 ---@param handle lsp_compl.handle
 local function insert_char_pre(handle)
   local pumvisible = tonumber(vim.fn.pumvisible()) == 1
@@ -460,20 +476,7 @@ local function insert_char_pre(handle)
     return
   end
   local char = api.nvim_get_vvar('char')
-  if not completion_timer and handle.completion_triggers[char] ~= nil then
-    completion_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
-    completion_timer:start(handle.leading_debounce, 0, function()
-      completion_timer = reset_timer(completion_timer)
-      vim.schedule(M.trigger_completion)
-    end)
-  end
-  if not signature_timer and handle.signature_triggers[char] ~= nil then
-    signature_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
-    signature_timer:start(handle.leading_debounce, 0, function()
-      signature_timer = reset_timer(signature_timer)
-      vim.schedule(signature_help)
-    end)
-  end
+  trigger(handle, char)
 end
 
 
@@ -502,6 +505,19 @@ local function insert_leave()
   completion_timer = reset_timer(completion_timer)
   completion_ctx.cursor = nil
   completion_ctx.reset()
+end
+
+
+---@param handle lsp_compl.handle
+local function insert_enter(handle)
+  local cursor = api.nvim_win_get_cursor(0)
+  local lnum = cursor[1] - 1
+  local col = cursor[2]
+  if col == 0 then
+    return
+  end
+  local char = api.nvim_buf_get_text(0, lnum, col - 1, lnum, col, {})[1]
+  trigger(handle, char)
 end
 
 
@@ -734,6 +750,13 @@ function M.attach(client, bufnr, opts)
       create_autocmd('TextChangedP', { group = group, buffer = bufnr, callback = text_changed_p })
       create_autocmd('TextChangedI', { group = group, buffer = bufnr, callback = text_changed_i })
     end
+    create_autocmd("InsertEnter", {
+      group = group,
+      buffer = bufnr,
+      callback = function()
+        insert_enter(handle)
+      end
+    })
     create_autocmd('InsertLeave', { group = group, buffer = bufnr, callback = insert_leave, })
     create_autocmd('CompleteDone', { group = group, buffer = bufnr, callback = complete_done })
   end
