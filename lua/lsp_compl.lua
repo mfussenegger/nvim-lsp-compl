@@ -266,7 +266,7 @@ function M.text_document_completion_list_to_complete_items(client_id, result, fu
   end
   local matches = {}
   for _, item in ipairs(items) do
-    if not fuzzy and item.filterText then
+    if not fuzzy and item.filterText and prefix ~= "" then
       if next(vim.fn.matchfuzzy({item.filterText}, prefix)) then
         local candidate = M._convert_item(client_id, item, fuzzy, offset)
         table.insert(matches, candidate)

@@ -303,4 +303,15 @@ describe('item conversion', function()
     local item = compl._convert_item(1, lsp_item, false, 1)
     assert.are.same("ansible.builtin.cpm_serial_port_info:", item.word)
   end)
+
+  it("Does not fuzzy filter items with filterText if prefix is empty", function()
+    local items = {
+      {
+        label = "dummy",
+        filterText = "dummy",
+      }
+    }
+    local result = compl.text_document_completion_list_to_complete_items(1, items, false, 0, "")
+    assert.are.same(1, #result)
+  end)
 end)
