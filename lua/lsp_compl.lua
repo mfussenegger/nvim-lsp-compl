@@ -603,7 +603,7 @@ local function complete_done()
       end
     end
   end
-  if item.additionalTextEdits then
+  if item.additionalTextEdits and next(item.additionalTextEdits) then
     local suffix = clear_word()
     lsp.util.apply_text_edits(item.additionalTextEdits, bufnr, offset_encoding)
     apply_snippet_and_command(suffix)
