@@ -4,6 +4,7 @@ local rtt_ms = 50
 local ns_to_ms = 0.000001
 local M = {}
 local SNIPPET = 2
+local ns = api.nvim_create_namespace("lsp_compl")
 
 ---@type nil|uv_timer_t
 local completion_timer = nil
@@ -324,10 +325,11 @@ local compute_new_average = exp_avg(10, 10)
 
 
 ---@param clients table<integer, lsp_compl.client>
+---@param method string
 ---@param bufnr integer
 ---@param win integer
 ---@param callback fun(responses: table)
-local function request(clients, bufnr, win, callback)
+local function request(clients, method, bufnr, win, callback)
   local results = {}
   local request_ids = {}
   local remaining_results = vim.tbl_count(clients)
@@ -336,7 +338,7 @@ local function request(clients, bufnr, win, callback)
     local params = lsp.util.make_position_params(win, lspclient.offset_encoding)
 
     ---@diagnostic disable-next-line: invisible
-    local ok, request_id = lspclient.request('textDocument/completion', params, function(err, result)
+    local ok, request_id = lspclient.request(method, params, function(err, result)
       results[client_id] = { err = err, result = result }
       remaining_results = remaining_results - 1
       if remaining_results == 0 then
@@ -371,7 +373,7 @@ function M.trigger_completion()
   completion_ctx.last_request = start
   local clients = (buf_handles[bufnr] or {}).clients or {}
 
-  local cancel_req = request(clients, bufnr, win, function(responses)
+  local cancel_req = request(clients, "textDocument/completion", bufnr, win, function(responses)
     local end_ = vim.loop.hrtime()
     rtt_ms = compute_new_average((end_ - start) * ns_to_ms)
     completion_ctx.pending_requests = {}
@@ -428,13 +430,87 @@ local function next_debounce(subsequent_debounce)
 end
 
 
-local function signature_help()
+---@param bufnr? integer
+---@param win? integer
+---@param pumvisible? boolean
+local function signature_help(bufnr, win, pumvisible)
   signature_timer = reset_timer(signature_timer)
-  local params = lsp.util.make_position_params()
-  lsp.buf_request(0, 'textDocument/signatureHelp', params, function(err, result, ctx, conf)
-    conf = conf and vim.deepcopy(conf) or {}
-    conf.focusable = false
-    vim.lsp.handlers['textDocument/signatureHelp'](err, result, ctx, conf)
+  bufnr = bufnr or api.nvim_get_current_buf()
+  win = win or api.nvim_get_current_win()
+  api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+
+  pumvisible = pumvisible or vim.fn.pumvisible() == 1
+  if not pumvisible then
+    local params = lsp.util.make_position_params()
+    lsp.buf_request(0, 'textDocument/signatureHelp', params, function(err, result, ctx, conf)
+      conf = conf and vim.deepcopy(conf) or {}
+      conf.focusable = false
+      vim.lsp.handlers['textDocument/signatureHelp'](err, result, ctx, conf)
+    end)
+    return
+  end
+
+  local clients = (buf_handles[bufnr] or {}).clients or {}
+  request(clients, "textDocument/signatureHelp", bufnr, win, function(responses)
+    for _, response in pairs(responses) do
+      ---@type lsp.SignatureHelp|nil
+      local result = response and response.result
+      if result then
+        local active_signature = result.activeSignature or 0
+        if active_signature < 0 or active_signature > #result.signatures then
+          active_signature = 0
+        end
+        local signature = result.signatures[active_signature + 1] or {}
+        local parameters = signature.parameters or {}
+
+        local active_param = signature.activeParameter or result.activeParameter or 0
+        if active_param < 0 or active_param > #parameters then
+          active_param = 0
+        end
+
+        local chunks = {}
+        for i = active_param, #parameters do
+          local param = parameters[i + 1]
+          if param then
+            if type(param.label) == "string" then
+              table.insert(chunks, { param.label, "Comment" })
+            else
+              local i_start = param.label[1]
+              local e_end = param.label[2]
+              local label = signature.label:sub(i_start + 1, e_end + 1)
+              table.insert(chunks, { label, "Comment" })
+            end
+          end
+        end
+
+        local cursor = api.nvim_win_get_cursor(win) -- (1,0) idx
+        local lnum = cursor[1] - 1
+        local col = cursor[2]
+
+        -- TODO: display this in a different way and figure out a good trigger to close/remove it
+        api.nvim_buf_set_extmark(bufnr, ns, lnum, col, {
+          virt_text = chunks,
+          virt_text_win_col = vim.fn.virtcol(".") - 1,
+          hl_mode = "combine",
+          virt_text_hide = true,
+          strict = false,
+        })
+        -- Maybe just a floating window?
+        --
+        --local buf = api.nvim_create_buf(false, true)
+        --api.nvim_buf_set_lines(buf, 0, -1, true, lines)
+        --local opts = {
+        --  relative = "cursor",
+        --  style = "minimal",
+        --  row = -1,
+        --  col = 0,
+        --  height = 1,
+        --  width = #signature.label
+        --}
+        --api.nvim_open_win(buf, false, opts)
+        return
+      end
+    end
   end)
 end
 
@@ -457,10 +533,16 @@ local function insert_char_pre(handle)
         completion_timer:start(debounce_ms, 0, vim.schedule_wrap(M.trigger_completion))
       end
     end
-    return
   end
   local char = api.nvim_get_vvar('char')
-  if not completion_timer and handle.completion_triggers[char] ~= nil then
+  local trigger_completion = (
+    not pumvisible
+    and not completion_timer
+    and handle.completion_triggers[char] ~= nil
+  )
+  local bufnr = api.nvim_get_current_buf()
+  local win = api.nvim_get_current_win()
+  if trigger_completion then
     completion_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
     completion_timer:start(handle.leading_debounce, 0, function()
       completion_timer = reset_timer(completion_timer)
@@ -471,7 +553,9 @@ local function insert_char_pre(handle)
     signature_timer = assert(vim.loop.new_timer(), "Must be able to create timer")
     signature_timer:start(handle.leading_debounce, 0, function()
       signature_timer = reset_timer(signature_timer)
-      vim.schedule(signature_help)
+      vim.schedule(function()
+        signature_help(bufnr, win, trigger_completion or pumvisible)
+      end)
     end)
   end
 end
@@ -498,6 +582,7 @@ end
 
 
 local function insert_leave()
+  api.nvim_buf_clear_namespace(0, ns, 0, -1)
   signature_timer = reset_timer(signature_timer)
   completion_timer = reset_timer(completion_timer)
   completion_ctx.cursor = nil
