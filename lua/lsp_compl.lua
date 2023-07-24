@@ -38,9 +38,9 @@ local buf_handles = {}
 ---@field opts lsp_compl.client_opts
 
 --- @class lsp_compl.client_opts
---- @field server_side_fuzzy_completion boolean
---- @field trigger_on_delete boolean
---- @field leading_debounce number
+--- @field server_side_fuzzy_completion? boolean
+--- @field trigger_on_delete? boolean
+--- @field leading_debounce? number
 --- @field subsequent_debounce? number
 
 
@@ -738,7 +738,7 @@ function M.attach(client, bufnr, opts)
     create_autocmd('CompleteDone', { group = group, buffer = bufnr, callback = complete_done })
   end
 
-  handle.has_fuzzy = handle.has_fuzzy or opts.server_side_fuzzy_completion
+  handle.has_fuzzy = handle.has_fuzzy or (opts.server_side_fuzzy_completion or false)
   handle.leading_debounce = math.max(handle.leading_debounce, 0)
   if handle.subsequent_debounce and opts.subsequent_debounce then
     handle.subsequent_debounce = math.max(handle.subsequent_debounce, opts.subsequent_debounce)
