@@ -5,10 +5,10 @@ local ns_to_ms = 0.000001
 local M = {}
 local SNIPPET = 2
 
----@type nil|uv_timer_t
+---@type nil|uv.uv_timer_t
 local completion_timer = nil
 
----@type nil|uv_timer_t
+---@type nil|uv.uv_timer_t
 local signature_timer = nil
 
 
@@ -235,7 +235,7 @@ function M.text_document_completion_list_to_complete_items(client_id, result, fu
 end
 
 
----@param timer? uv_timer_t
+---@param timer? uv.uv_timer_t
 local function reset_timer(timer)
   if timer then
     timer:stop()
