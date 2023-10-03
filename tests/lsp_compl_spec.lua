@@ -1,3 +1,6 @@
+if os.getenv("LOCAL_LUA_DEBUGGER_VSCODE") == "1" then
+  require("lldebugger").start()
+end
 local api = vim.api
 local compl = require('lsp_compl')
 
@@ -314,6 +317,105 @@ describe('item conversion', function()
       }
     }
     local result = compl.text_document_completion_list_to_complete_items(1, items, false, 0, "")
+    assert.are.same(1, #result)
+  end)
+  it("fuzzy filter with word boundary before cursor", function()
+    local line = "  ansible."
+    local lnum = 1
+    local word_boundary = 2
+    local item1 = {
+      kind = 7,
+      label = "ansible.builtin.meta",
+      sortText = "2_ansible.builtin.meta",
+      filterText = "meta ansible.builtin.meta builtin ansible",
+      textEdit = {
+        newText = "ansible.builtin.meta:\n",
+        range = {
+          start = {
+            line = 1,
+            character = 2
+          },
+          ["end"] = {
+            line = 1,
+            character = 10
+          }
+        }
+      }
+    }
+    local item2 = {
+      kind = 18,
+      label = "arista.eos.system",
+      sortText = "3_arista.eos.system",
+      filterText = "system arista.eos.system eos arista",
+      textEdit = {
+        newText = "arista.eos.system:\n",
+        range = {
+          start = {
+            line = 0,
+            character = 2
+          },
+          ["end"] = {
+            line = 0,
+            character = 10
+          }
+        }
+      }
+    }
+    local response = { item1, item2 }
+    local result = compl._convert_items(
+      1,
+      "utf-16",
+      response,
+      lnum,
+      line,
+      word_boundary,
+      nil,
+      false
+    )
+    assert.are.same(1, #result)
+    assert.are.same("ansible.builtin.meta:", result[1].word)
+  end)
+
+  it("Doesn't filter items with suffix", function()
+    local line = "        <version></version>"
+    local lnum = 1
+    local word_boundary = 17
+    local response = {
+      isIncomplete = false,
+      itemDefaults = {
+        insertTextFormat = 2,
+        editRange = {
+          start = {
+            line = 0,
+            character = 17,
+          },
+          ["end"] = {
+            line = 0,
+            character = 17
+          }
+        }
+      },
+      items =  {
+        {
+          filterText = "3.1.2",
+          insertTextFormat = 1,
+          kind = 10,
+          label = "3.1.2",
+          sortText = "000000.3.1.2",
+          textEditText = "3.1.2"
+        }
+      }
+    }
+    local result = compl._convert_items(
+      1,
+      "utf-16",
+      response,
+      lnum,
+      line,
+      word_boundary,
+      nil,
+      false
+    )
     assert.are.same(1, #result)
   end)
 end)
