@@ -206,12 +206,11 @@ end
 
 
 ---@param client_id integer
----@param result lsp.CompletionItem[]|lsp.CompletionList
+---@param items lsp.CompletionItem[]
 ---@param fuzzy boolean
 ---@param offset integer
 ---@param prefix string
-function M.text_document_completion_list_to_complete_items(client_id, result, fuzzy, offset, prefix)
-  local items = get_completion_items(result)
+function M.text_document_completion_list_to_complete_items(client_id, items, fuzzy, offset, prefix)
   if #items == 0 then
     return {}
   end
@@ -358,6 +357,35 @@ local function request(clients, bufnr, win, callback)
 end
 
 
+function M._convert_items(client_id,
+                          encoding,
+                          items,
+                          lnum,
+                          line,
+                          cursor_pos,
+                          word_boundary,
+                          startbyte,
+                          fuzzy)
+  local current_startbyte = adjust_start_col(lnum, line, items, encoding)
+  if startbyte == nil then
+    startbyte = current_startbyte
+  elseif current_startbyte ~= nil and current_startbyte ~= startbyte then
+    startbyte = word_boundary
+  end
+  local offset = startbyte and (word_boundary - startbyte) or 0
+  local line_to_cursor = line:sub(1, cursor_pos)
+  local prefix = startbyte and line:sub(startbyte) or line_to_cursor:sub(word_boundary)
+  local matches = M.text_document_completion_list_to_complete_items(
+    client_id,
+    items,
+    fuzzy,
+    math.max(0, offset),
+    prefix
+  )
+  return matches, startbyte
+end
+
+
 function M.trigger_completion()
   completion_timer = reset_timer(completion_timer)
   completion_ctx.cancel_pending()
@@ -366,7 +394,7 @@ function M.trigger_completion()
   local lnum, cursor_pos = unpack(api.nvim_win_get_cursor(win))
   local line = api.nvim_get_current_line()
   local line_to_cursor = line:sub(1, cursor_pos)
-  local col = vim.fn.match(line_to_cursor, '\\k*$') + 1
+  local word_boundary = vim.fn.match(line_to_cursor, '\\k*$') + 1
   local start = vim.loop.hrtime()
   completion_ctx.last_request = start
   local clients = (buf_handles[bufnr] or {}).clients or {}
@@ -393,26 +421,23 @@ function M.trigger_completion()
         local client = vim.lsp.get_client_by_id(client_id)
         local items = get_completion_items(result)
         local encoding = client and client.offset_encoding or 'utf-16'
-        local current_startbyte = adjust_start_col(lnum, line, items, encoding)
-        if startbyte == nil then
-          startbyte = current_startbyte
-        elseif current_startbyte ~= nil and current_startbyte ~= startbyte then
-          startbyte = col
-        end
         local opts = (clients[client_id] or {}).opts
-        local offset = startbyte and (col - startbyte) or 0
-        local prefix = startbyte and line:sub(startbyte) or line_to_cursor:sub(col)
-        local matches = M.text_document_completion_list_to_complete_items(
+        local matches
+        matches, startbyte = M._convert_items(
           client_id,
-          result,
-          opts.server_side_fuzzy_completion,
-          math.max(0, offset),
-          prefix
+          encoding,
+          items,
+          lnum,
+          line,
+          cursor_pos,
+          word_boundary,
+          startbyte,
+          opts.server_side_fuzzy_completion
         )
         vim.list_extend(all_matches, matches)
       end
     end
-    vim.fn.complete(startbyte or col, all_matches)
+    vim.fn.complete(startbyte or word_boundary, all_matches)
   end)
   table.insert(completion_ctx.pending_requests, cancel_req)
 end

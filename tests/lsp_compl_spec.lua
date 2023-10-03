@@ -2,6 +2,8 @@ local api = vim.api
 local compl = require('lsp_compl')
 
 local messages = {}
+---@diagnostic disable-next-line: deprecated
+local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
 
 local function new_server(completion_result)
   local function server(dispatchers)
@@ -85,9 +87,9 @@ describe('lsp_compl', function()
   end)
 
   after_each(function()
-    vim.lsp.stop_client(vim.lsp.get_active_clients())
-    wait(function() return vim.tbl_count(vim.lsp.get_active_clients()) == 0 end, 'clients must stop')
-    assert.are.same({}, vim.lsp.get_active_clients())
+    vim.lsp.stop_client(get_clients())
+    wait(function() return vim.tbl_count(get_clients()) == 0 end, 'clients must stop')
+    assert.are.same({}, get_clients())
   end)
 
   it('fetches completions and shows them using complete on trigger_completion', function()
@@ -228,7 +230,7 @@ describe('lsp_compl', function()
     local server = new_server({ isIncomplete = false, items = items })
     local client_id = vim.lsp.start({ name = 'dummy', cmd = server, on_attach = compl.attach })
     assert(client_id)
-    local client = vim.lsp.get_client_by_id(client_id)
+    local client = assert(vim.lsp.get_client_by_id(client_id))
     local called = false
     client.commands.dummy = function()
       called = true
