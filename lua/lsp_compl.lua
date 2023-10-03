@@ -274,26 +274,31 @@ local function adjust_start_col(lnum, line, items, encoding)
   --  - Use textEdit.range.start.character *only* if *all* items contain the same value
   --    Otherwise we'd have to normalize the `word` value.
   --
-  local min_start_char = nil
+  local min_start = nil
+  local min_end = nil
 
   for _, item in pairs(items) do
     if item.textEdit and item.textEdit.range.start.line == lnum - 1 then
       local range = item.textEdit.range
-      if min_start_char and min_start_char ~= range.start.character then
+      if min_start and min_start ~= range.start.character then
         return nil
       end
 
       if range.start.character > range['end'].character then
         return nil
       end
-      min_start_char = range.start.character
+      min_start = range.start.character
+      min_end = range["end"].character
     end
   end
-  if min_start_char then
+  if min_start then
     if encoding == 'utf-8' then
-      return min_start_char + 1
+      return min_start, min_end
     else
-      return vim.str_byteindex(line, min_start_char, encoding == 'utf-16') + 1
+      if min_end then
+        min_end = vim.str_byteindex(line, min_end, encoding == 'utf-16')
+      end
+      return vim.str_byteindex(line, min_start, encoding == 'utf-16'), min_end
     end
   else
     return nil
@@ -357,24 +362,32 @@ local function request(clients, bufnr, win, callback)
 end
 
 
+---@param client_id integer
+---@param encoding string
+---@param result lsp.CompletionItem[]|lsp.CompletionList
+---@param lnum integer
+---@param line string
+---@param word_boundary integer byte_offset 0-index
+---@param startbyte? integer byte_offset 0-index
+---@param fuzzy boolean
+---@return table[], integer?
 function M._convert_items(client_id,
                           encoding,
-                          items,
+                          result,
                           lnum,
                           line,
-                          cursor_pos,
                           word_boundary,
                           startbyte,
                           fuzzy)
-  local current_startbyte = adjust_start_col(lnum, line, items, encoding)
+  local items = get_completion_items(result)
+  local current_startbyte, end_boundary = adjust_start_col(lnum, line, items, encoding)
   if startbyte == nil then
     startbyte = current_startbyte
   elseif current_startbyte ~= nil and current_startbyte ~= startbyte then
     startbyte = word_boundary
   end
   local offset = startbyte and (word_boundary - startbyte) or 0
-  local line_to_cursor = line:sub(1, cursor_pos)
-  local prefix = startbyte and line:sub(startbyte) or line_to_cursor:sub(word_boundary)
+  local prefix = line:sub((startbyte or word_boundary) + 1, end_boundary)
   local matches = M.text_document_completion_list_to_complete_items(
     client_id,
     items,
@@ -394,7 +407,7 @@ function M.trigger_completion()
   local lnum, cursor_pos = unpack(api.nvim_win_get_cursor(win))
   local line = api.nvim_get_current_line()
   local line_to_cursor = line:sub(1, cursor_pos)
-  local word_boundary = vim.fn.match(line_to_cursor, '\\k*$') + 1
+  local word_boundary = vim.fn.match(line_to_cursor, '\\k*$')
   local start = vim.loop.hrtime()
   completion_ctx.last_request = start
   local clients = (buf_handles[bufnr] or {}).clients or {}
@@ -419,25 +432,24 @@ function M.trigger_completion()
       if result then
         completion_ctx.isIncomplete = completion_ctx.isIncomplete or result.isIncomplete
         local client = vim.lsp.get_client_by_id(client_id)
-        local items = get_completion_items(result)
         local encoding = client and client.offset_encoding or 'utf-16'
         local opts = (clients[client_id] or {}).opts
         local matches
         matches, startbyte = M._convert_items(
           client_id,
           encoding,
-          items,
+          result,
           lnum,
           line,
-          cursor_pos,
           word_boundary,
           startbyte,
-          opts.server_side_fuzzy_completion
+          opts.server_side_fuzzy_completion or false
         )
         vim.list_extend(all_matches, matches)
       end
     end
-    vim.fn.complete(startbyte or word_boundary, all_matches)
+    local startcol = (startbyte or word_boundary) + 1
+    vim.fn.complete(startcol, all_matches)
   end)
   table.insert(completion_ctx.pending_requests, cancel_req)
 end
