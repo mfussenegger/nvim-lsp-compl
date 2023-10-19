@@ -545,13 +545,35 @@ end
 
 
 --- Expands a snippet.
---- Uses luasnip or vsnip by default. Override to use a different snippet engine.
+--- Uses one of:
+---  - vim.snippet.expand
+---  - luasnip
+---  - vsnip
+---
+--- Override to use a different snippet engine.
 ---
 ---@param snippet string
 function M.expand_snippet(snippet)
+  -- Check luasnip/vsnip first to avoid behavior change due to vim.snippet addition.
+  if package.loaded["luasnip"] then
+    require("luasnip").lsp_expand(snippet)
+    return
+  end
+  if vim.fn.exists("*vsnip#anonymous") == 1 then
+    vim.fn['vsnip#anonymous'](snippet)
+  end
+  if vim.snippet then
+    vim.snippet.expand(snippet)
+    return
+  end
   local ok, luasnip = pcall(require, 'luasnip')
-  local fn = ok and luasnip.lsp_expand or vim.fn['vsnip#anonymous']
-  fn(snippet)
+  if ok then
+    luasnip(snippet)
+  end
+  vim.notify_once(
+    "No snippet provider available. Install luasnip/vsnip, update neovim for vim.snippet or override expand_snippet",
+    vim.log.levels.WARN
+  )
 end
 
 
@@ -839,7 +861,11 @@ end
 ---   )
 ---@return table
 function M.capabilities()
-  local has_snippet_support = pcall(require, 'luasnip') or vim.fn['vsnip#anonymous'] ~= nil
+  local has_snippet_support = (
+    package.loaded["luasnip"] ~= nil
+    or vim.fn.exists('*vsnip#anonymous') == 1
+    or vim.snippet ~= nil
+  )
   return {
     textDocument = {
       completion = {
