@@ -427,7 +427,9 @@ function M.trigger_completion()
     local all_matches = {}
     local startbyte
     for client_id, response in pairs(responses) do
-      assert(not response.err, vim.inspect(response.err))
+      if response.err then
+        vim.notify_once(response.err.message, vim.log.levels.WARN)
+      end
       local result = response.result
       if result then
         completion_ctx.isIncomplete = completion_ctx.isIncomplete or result.isIncomplete
