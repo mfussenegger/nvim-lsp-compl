@@ -20,7 +20,9 @@ There have been some voices looking for something smaller than the alternatives,
 - Apply additional text edits (Used to resolve imports and so on)
 - Supports lazy resolving of additional text edits if the language server has the capability
 - Optionally supports server side fuzzy matching
-- Optionally supports LSP snippet expansion if [LuaSnip][luasnip] or [vsnip][vsnip] is installed or a custom snippet-applier is registered
+- Optionally supports LSP snippet expansion if `vim.snippet` is available,
+  [LuaSnip][luasnip] or [vsnip][vsnip] is installed or a custom snippet-applier
+  is registered
 
 If you need anything else, you better use one of the others.
 
@@ -90,14 +92,20 @@ local config = {
 
 And explicitly accept a completion candidate:
 
-```vimL
+```lua
 vim.keymap.set('i', '<CR>', function()
   return require('lsp_compl').accept_pum() and '<c-y>' or '<CR>'
 end, { expr = true })
 ```
 
-Currently snippet expansion tries [LuaSnip][luasnip] if available and otherwise falls back to use [vim-vsnip][vsnip], but you can override the `expand_snippet` function to use a different snippet engine:
+Currently snippet expansion order:
 
+- [LuaSnip][luasnip] if loaded
+- `vim.snippet`
+- [LuaSnip][luasnip] again, this time trying to load it.
+- [vim-vsnip][vsnip]
+
+You can override the `expand_snippet` function to use a different snippet engine:
 
 ```lua
 require('lsp_compl').expand_snippet = vim.fn['vsnip#anonymous']
