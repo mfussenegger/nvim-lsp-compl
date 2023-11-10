@@ -171,11 +171,7 @@ function M._convert_item(client_id, item, fuzzy, offset)
       -- Typing `i` would remove the candidate because newText starts with `t`.
       word = (fuzzy or vim.startswith(text:sub(offset + 1), item.label)) and text or item.label
     elseif item.insertText and item.insertText ~= "" then
-      if #item.label < #item.insertText then
-        word = item.label
-      else
-        word = item.insertText
-      end
+      word = vim.fn.matchstr(item.insertText, "\\k*")
     else
       word = item.label
     end
