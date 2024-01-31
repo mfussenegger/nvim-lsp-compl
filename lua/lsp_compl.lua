@@ -21,6 +21,34 @@ if vim.fn.has('nvim-0.7') ~= 1 then
   return
 end
 
+local kind_icons = {
+  Text = "󰉿",
+  Method = "󰆧",
+  Function = "󰘧",
+  Constructor = "",
+  Field = "󰜢",
+  Variable = "󰀫",
+  Class = "󰠱",
+  Interface = "",
+  Module = "",
+  Property = "󰜢",
+  Unit = "󰑭",
+  Value = "󰎠",
+  Enum = "",
+  Keyword = "󰌋",
+  Snippet = "",
+  Color = "󰏘",
+  File = "󰈙",
+  Reference = "",
+  Folder = "󰉋",
+  EnumMember = "",
+  Constant = "󰏿",
+  Struct = "",
+  Event = "",
+  Operator = "󰆕",
+  TypeParameter = " ",
+  Unknown = " ",
+}
 
 ---@class lsp_compl.handle
 ---@field clients table<integer, lsp_compl.client>
@@ -190,7 +218,7 @@ function M._convert_item(client_id, item, fuzzy, offset)
   return {
     word = word,
     abbr = item.label,
-    kind = kind,
+    kind = kind_icons[kind] or kind,
     menu = item.detail or '',
     info = info,
     icase = 1,
@@ -204,7 +232,6 @@ function M._convert_item(client_id, item, fuzzy, offset)
   }
 end
 
-
 ---@param client_id integer
 ---@param items lsp.CompletionItem[]
 ---@param fuzzy boolean
@@ -217,7 +244,7 @@ function M.text_document_completion_list_to_complete_items(client_id, items, fuz
   local matches = {}
   for _, item in ipairs(items) do
     if not fuzzy and item.filterText and prefix ~= "" then
-      if next(vim.fn.matchfuzzy({item.filterText}, prefix)) then
+      if next(vim.fn.matchfuzzy({ item.filterText }, prefix)) then
         local candidate = M._convert_item(client_id, item, fuzzy, offset)
         table.insert(matches, candidate)
       end
@@ -232,7 +259,6 @@ function M.text_document_completion_list_to_complete_items(client_id, items, fuz
   end)
   return matches
 end
-
 
 ---@param timer? uv.uv_timer_t
 local function reset_timer(timer)
@@ -398,7 +424,6 @@ function M._convert_items(client_id,
   return matches, startbyte
 end
 
-
 function M.trigger_completion()
   completion_timer = reset_timer(completion_timer)
   completion_ctx.cancel_pending()
@@ -455,7 +480,6 @@ function M.trigger_completion()
   end)
   table.insert(completion_ctx.pending_requests, cancel_req)
 end
-
 
 local function next_debounce(subsequent_debounce)
   local debounce_ms = subsequent_debounce or rtt_ms
@@ -576,7 +600,6 @@ function M.expand_snippet(snippet)
   )
 end
 
-
 local function apply_snippet(item, suffix)
   if item.textEdit then
     M.expand_snippet(item.textEdit.newText .. suffix)
@@ -599,7 +622,7 @@ local function complete_done()
   local lnum, col = unpack(api.nvim_win_get_cursor(0))
   lnum = lnum - 1
   local user_data = completed_item.user_data
-  local item = user_data.item  --[[@as lsp.CompletionItem]]
+  local item = user_data.item --[[@as lsp.CompletionItem]]
   local client_id = user_data.client_id
   if not item or not client_id then
     completion_ctx.reset()
@@ -627,7 +650,7 @@ local function complete_done()
     -- Remove the already inserted word
     local start_char = col - #completed_item.word
     local line = api.nvim_buf_get_lines(bufnr, lnum, lnum + 1, true)[1]
-    api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, {''})
+    api.nvim_buf_set_text(bufnr, lnum, start_char, lnum, #line, { '' })
     local suffix = line:sub(col + 1)
     return suffix
   end
@@ -701,7 +724,6 @@ function M.accept_pum()
   end
 end
 
-
 function M.detach(client_id, bufnr)
   local handle = buf_handles[bufnr]
   if not handle then
@@ -725,7 +747,6 @@ function M.detach(client_id, bufnr)
     end
   end
 end
-
 
 ---@param client lsp.Client
 local function init_commands(client)
@@ -850,7 +871,6 @@ function M.attach(client, bufnr, opts)
   ))
 end
 
-
 --- Returns the LSP capabilities this plugin adds.
 --- Must be merged into capabilities created with `vim.lsp.protocol.make_client_capabilities()`
 ---
@@ -872,7 +892,7 @@ function M.capabilities()
         completionItem = {
           snippetSupport = has_snippet_support,
           resolveSupport = {
-            properties = {'edit', 'documentation', 'detail', 'additionalTextEdits'}
+            properties = { 'edit', 'documentation', 'detail', 'additionalTextEdits' }
           },
         },
         completionList = {
