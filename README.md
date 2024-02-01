@@ -178,6 +178,16 @@ Yes, you have three options:
 inoremap <expr> <BS> (pumvisible() ? "\<BS><cmd> :lua require'lsp_compl'.trigger_completion()<CR>" : "\<BS>")
 ```
 
+### How can I enable nerd font?
+
+```lua
+  -- ...
+  on_attach = function(client, bufnr)
+    require'lsp_compl'.attach(client, bufnr, { nerd_font = true })
+  end
+  -- ...
+```
+
 
 [1]: https://github.com/hrsh7th/nvim-compe
 [2]: https://github.com/junegunn/vim-plug
