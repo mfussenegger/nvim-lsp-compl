@@ -34,7 +34,7 @@ end
 local buf_handles = {}
 
 ---@class lsp_compl.client
----@field lspclient lsp.Client
+---@field lspclient vim.lsp.Client
 ---@field opts lsp_compl.client_opts
 
 --- @class lsp_compl.client_opts
@@ -67,12 +67,6 @@ completion_ctx = {
     completion_ctx.cancel_pending()
   end
 }
-
----@class lsp.ItemDefaults
----@field editRange nil|lsp.Range|{insert: lsp.Range, replace: lsp.Range}
----@field insertTextFormat nil|number
----@field insertTextMode nil|lsp.InsertTextMode
----@field data any
 
 
 ---@param item lsp.CompletionItem
@@ -119,7 +113,7 @@ end
 local function get_completion_items(result)
   if result.items then
     for _, item in pairs(result.items) do
-      apply_defaults(item, result.itemDefaults)
+      apply_defaults(item, result.itemDefaults --[[@as lsp.ItemDefaults]])
     end
     return result.items
   else
@@ -723,7 +717,7 @@ function M.detach(client_id, bufnr)
 end
 
 
----@param client lsp.Client
+---@param client vim.lsp.Client
 local function init_commands(client)
   local cmd_trigger_completion = 'editor.action.triggerSuggest'
   local cmd_trigger_signature = 'editor.action.triggerParameterHints'
@@ -750,7 +744,7 @@ local function init_commands(client)
 end
 
 
----@param client lsp.Client
+---@param client vim.lsp.Client
 ---@param bufnr integer
 ---@param opts? lsp_compl.client_opts
 function M.attach(client, bufnr, opts)
