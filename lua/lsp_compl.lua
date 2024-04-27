@@ -576,7 +576,7 @@ local function apply_snippet(item, suffix)
 end
 
 
-local function complete_done()
+local function complete_done(event)
   if completion_ctx.suppress_completeDone then
     completion_ctx.suppress_completeDone = false
     return
@@ -598,7 +598,7 @@ local function complete_done()
   local bufnr = api.nvim_get_current_buf()
   local expand_snippet = (
     item.insertTextFormat == SNIPPET
-    and completion_ctx.expand_snippet
+    and (completion_ctx.expand_snippet or event.reason == "accept")
     and (item.textEdit ~= nil or item.insertText ~= nil)
   )
   completion_ctx.reset()
