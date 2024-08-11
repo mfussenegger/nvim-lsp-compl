@@ -4,6 +4,12 @@ A fast and asynchronous auto-completion plugin for Neovim (latest stable and nig
 
 For Neovim 0.5.1 support, checkout `ad95138d56b7c84fb02e7c7078e8f5e61fda4596`.
 
+## Status
+
+nvim-lsp-compl won't see further development and will be archived once neovim
+0.11 is released because it will include a `vim.lsp.completion` module which is
+to a large part based on nvim-lsp-compl.
+
 ## Motivation
 
 Why *another* one?
